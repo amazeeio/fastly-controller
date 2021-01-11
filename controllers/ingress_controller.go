@@ -52,6 +52,8 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
 	opLog := r.Log.WithValues("ingress", req.NamespacedName)
 
+	finalizerName := "finalizer.fastly.amazee.io/v1"
+
 	// load the resource
 	var ingress networkv1beta1.Ingress
 	if err := r.Get(ctx, req.NamespacedName, &ingress); err != nil {
@@ -348,11 +350,6 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		}
 	} else {
 		// The object is being deleted
-		/*
-			// uncomment if finalizers need to be a thing
-			// commented for now to be non-blocking on namespace deletion
-				if containsString(ingress.ObjectMeta.Finalizers, finalizerName) {
-		*/
 		if err := r.deleteExternalResources(ctx,
 			ingress,
 			fastlyConfig,
@@ -362,14 +359,13 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		); err != nil {
 			return ctrl.Result{}, fmt.Errorf("Failed to delete external resources, error was: %v", err)
 		}
-		/*
-				// remove finalizer once done
-				ingress.ObjectMeta.Finalizers = removeString(ingress.ObjectMeta.Finalizers, finalizerName)
-				if err := r.Update(ctx, &ingress); err != nil {
-					return ctrl.Result{}, err
-				}
+		// remove finalizer if one exists
+		if containsString(ingress.ObjectMeta.Finalizers, finalizerName) {
+			ingress.ObjectMeta.Finalizers = removeString(ingress.ObjectMeta.Finalizers, finalizerName)
+			if err := r.Update(ctx, &ingress); err != nil {
+				return ctrl.Result{}, err
 			}
-		*/
+		}
 	}
 	return ctrl.Result{}, nil
 }
