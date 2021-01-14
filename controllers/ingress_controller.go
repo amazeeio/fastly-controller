@@ -147,23 +147,6 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 						domainsToAdd = append(domainsToAdd, host)
 					}
 				}
-				opLog.Info(fmt.Sprintf("Patching secret %s with service ID and watch status", tls.SecretName))
-				err := r.patchSecret(ctx,
-					ingress,
-					fastlyConfig,
-					tls.SecretName,
-					false,
-				)
-				if err != nil {
-					opLog.Info(fmt.Sprintf("Unable to patch secret, pausing ingress, error was: %v", err))
-					patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
-					if patchErr != nil {
-						// if we can't patch the resource, just log it and return
-						// next time it tries to reconcile, it will just exit here without doing anything else
-						opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, giving up, error was: %v", patchErr))
-					}
-					return ctrl.Result{}, nil
-				}
 			}
 			// if we have any domains to add to the service, we do that here
 			if len(domainsToAdd) > 0 {
@@ -321,6 +304,27 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			} else {
 				opLog.Info(fmt.Sprintf("No domains found to add to service %s", fastlyConfig.ServiceID))
 			}
+			// patch the ingress secrets after adding the domains
+			// this also gives a bit of time for the ingress tls secrets to be created
+			for _, tls := range ingress.Spec.TLS {
+				opLog.Info(fmt.Sprintf("Patching secret %s with service ID and watch status", tls.SecretName))
+				err := r.patchSecret(ctx,
+					ingress,
+					fastlyConfig,
+					tls.SecretName,
+					false,
+				)
+				if err != nil {
+					opLog.Info(fmt.Sprintf("Unable to patch secret, pausing ingress, error was: %v", err))
+					patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+					if patchErr != nil {
+						// if we can't patch the resource, just log it and return
+						// next time it tries to reconcile, it will just exit here without doing anything else
+						opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, giving up, error was: %v", patchErr))
+					}
+					return ctrl.Result{}, nil
+				}
+			}
 			opLog.Info(fmt.Sprintf("Finished checking fastly service %s", fastlyConfig.ServiceID))
 			/*
 				// add finalizer so that we make sure to clean up in fastly
@@ -447,8 +451,8 @@ func (r *IngressReconciler) deleteExternalResources(ctx context.Context,
 				r.ClusterName,
 				ingress.ObjectMeta.Namespace,
 			)
-			if clonedVersion.Comment != "" {
-				// if there is already a comment, then add our comment to the end
+			if clonedVersion.Comment != "" && latest.Active == false {
+				// if there is already a comment on the cloned version, then add our comment to the end
 				comment = fmt.Sprintf(
 					"%s\nDomains in ingress %s removed by fastly-controller: cluster:%s:namespace:%s",
 					clonedVersion.Comment,

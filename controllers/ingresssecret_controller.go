@@ -141,7 +141,14 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					opLog.Info(fmt.Sprintf("Privatekey is different to the one defined, check or load into Fastly"))
 					privateKeyID, err := r.addPrivateKey(ctx, ingressSecret, publicKeySha1)
 					if err != nil {
-						return ctrl.Result{}, fmt.Errorf("Privatekey failed to load into Fastly, error was: %v", err)
+						opLog.Info(fmt.Sprintf("Privatekey failed to load into Fastly, pausing, error was: %v", err))
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+						if patchErr != nil {
+							// if we can't patch the resource, just log it and return
+							// next time it tries to reconcile, it will just exit here without doing anything else
+							opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+						}
+						return ctrl.Result{}, nil
 					}
 					// patch the ingress with what we discover from the api or from the one we created
 					// add the original annotations to `old` annotations for clean up later
@@ -163,7 +170,14 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					opLog.Info(fmt.Sprintf("Privatekey info not found, check or load it into Fastly"))
 					privateKeyID, err := r.addPrivateKey(ctx, ingressSecret, publicKeySha1)
 					if err != nil {
-						return ctrl.Result{}, fmt.Errorf("Privatekey failed to load into Fastly, error was: %v", err)
+						opLog.Info(fmt.Sprintf("Privatekey failed to load into Fastly, pausing, error was: %v", err))
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+						if patchErr != nil {
+							// if we can't patch the resource, just log it and return
+							// next time it tries to reconcile, it will just exit here without doing anything else
+							opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+						}
+						return ctrl.Result{}, nil
 					}
 					// patch the ingress with what we discover from the api or from the one we created
 					r.patchSecretAnnotations(ctx, ingressSecret, map[string]string{
@@ -280,9 +294,12 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					}
 				*/
 				opLog.Info(fmt.Sprintf("Clean up old PubkeySha1:%s, PrivKeyID:%s", oldPublicKeySha1Annotation, oldPrivateKeyIDAnnotation))
-				if err := r.deletePrivateKey(ingressSecret, string(ingressSecret.Annotations["fastly.amazee.io/old-private-key-id"])); err != nil {
-					return ctrl.Result{}, err
-				}
+				/*
+					// @TODO: can't delete old private keys without deleting the certificate too
+					if err := r.deletePrivateKey(ingressSecret, string(ingressSecret.Annotations["fastly.amazee.io/old-private-key-id"])); err != nil {
+						return ctrl.Result{}, err
+					}
+				*/
 				// patch the secret to remove the old items
 				r.patchSecretAnnotations(ctx, ingressSecret, map[string]string{
 					"fastly.amazee.io/old-public-key-sha1": "",
