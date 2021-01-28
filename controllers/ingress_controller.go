@@ -211,7 +211,7 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 					&fastly.UpdateVersionInput{
 						Service: fastlyConfig.ServiceID,
 						Version: clonedVersion.Number,
-						Comment: comment,
+						Comment: truncateString(comment, 512), // truncate the comment to 512 to not exceed comment limit
 					})
 				if err != nil {
 					opLog.Info(fmt.Sprintf("Unable to update service version in fastly, pausing ingress, error was: %v", err))
