@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   repository: amazeeio/fastly-controller
-  tag: v0.0.1rc7
+  tag: v0.0.1rc8
   pullPolicy: IfNotPresent
 
 kubeRbacProxy:

@@ -25,7 +25,7 @@ case $1 in
       --set fastly.clusterName=${CLUSTER_NAME}
     ;;
   install-tgz)
-    helm upgrade --install -n fastly-controller fastly-controller  charts/fastly-controller-0.0.2.tgz  \
+    helm upgrade --install -n fastly-controller fastly-controller  charts/fastly-controller-0.0.3.tgz  \
       --set fastly.apiToken=${FASTLY_API_TOKEN} \
       --set fastly.tlsConfigID=${FASTLY_PLATFORM_TLS_CONFIGURATION_ID} \
       --set fastly.clusterName=${CLUSTER_NAME}
