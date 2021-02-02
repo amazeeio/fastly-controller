@@ -83,9 +83,9 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 			}
 			return ctrl.Result{}, nil
 		}
-		if _, ok := fastlyAPISecret.StringData["API_TOKEN"]; ok {
-			fastlyConfig.Token = fastlyAPISecret.StringData["API_TOKEN"]
-			opLog.Info(fmt.Sprintf("Unable to find secret data for API_TOKEN, pausing ingress, error was: %v", err))
+		if _, ok := fastlyAPISecret.StringData["api-token"]; ok {
+			fastlyConfig.Token = fastlyAPISecret.StringData["api-token"]
+			opLog.Info(fmt.Sprintf("Unable to find secret data for api-token, pausing ingress, error was: %v", err))
 			patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
 			if patchErr != nil {
 				// if we can't patch the resource, just log it and return
@@ -94,9 +94,9 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 			}
 			return ctrl.Result{}, nil
 		}
-		if _, ok := fastlyAPISecret.StringData["PLATFORM_TLS_ID"]; ok {
-			fastlyConfig.PlatformTLSConfiguration = fastlyAPISecret.StringData["PLATFORM_TLS_ID"]
-			opLog.Info(fmt.Sprintf("Unable to find secret data for PLATFORM_TLS_ID, pausing ingress, error was: %v", err))
+		if _, ok := fastlyAPISecret.StringData["platform-tls-configuration"]; ok {
+			fastlyConfig.PlatformTLSConfiguration = fastlyAPISecret.StringData["platform-tls-configuration"]
+			opLog.Info(fmt.Sprintf("Unable to find secret data for platform-tls-configuration, pausing ingress, error was: %v", err))
 			patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
 			if patchErr != nil {
 				// if we can't patch the resource, just log it and return
