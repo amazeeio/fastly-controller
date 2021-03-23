@@ -251,7 +251,10 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 							return ctrl.Result{}, nil
 						}
 						if secretCert.NotAfter.After(*bulkCertificate.NotAfter) {
-							opLog.Info(fmt.Sprintf("Certificate has changed, old expiry is %v, new expiry is %v. Updating certificate in Fastly", secretCert.NotAfter, bulkCertificate.NotAfter))
+							opLog.Info(fmt.Sprintf("Certificate has changed, old expiry is %v, new expiry is %v. Updating certificate in Fastly",
+								secretCert.NotAfter,
+								bulkCertificate.NotAfter,
+							))
 							err = r.updateCertificate(ctx, ingressSecret, bulkCertificateIDAnnotation)
 							if err != nil {
 								errMsg := fmt.Sprintf("Certificate failed to update in Fastly, error was: %v", err)
@@ -333,7 +336,10 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 							return ctrl.Result{}, nil
 						}
 						if secretCert.NotAfter.After(*bulkCertificate.NotAfter) {
-							opLog.Info(fmt.Sprintf("Certificate has changed, old expiry is %v, new expiry is %v. Updating certificate in Fastly", secretCert.NotAfter, bulkCertificate.NotAfter))
+							opLog.Info(fmt.Sprintf("Certificate has changed, old expiry is %v, new expiry is %v. Updating certificate in Fastly",
+								secretCert.NotAfter,
+								bulkCertificate.NotAfter,
+							))
 							err = r.updateCertificate(ctx, ingressSecret, bulkCertificateIDAnnotation)
 							if err != nil {
 								errMsg := fmt.Sprintf("Certificate failed to update in Fastly, error was: %v", err)
