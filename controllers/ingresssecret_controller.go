@@ -130,7 +130,14 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 				// we will also load this sha into the annotations
 				publicKeySha1, err := decodePrivateKeyToPublicKeySHA1(ingressSecret.Data["tls.key"])
 				if err != nil {
-					return ctrl.Result{}, err
+					opLog.Info(fmt.Sprintf("Pausing, error was: %v", err))
+					patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+					if patchErr != nil {
+						// if we can't patch the resource, just log it and return
+						// next time it tries to reconcile, it will just exit here without doing anything else
+						opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+					}
+					return ctrl.Result{}, nil
 				}
 
 				// if the publickeysha1annotation is not empty (we already populated it once before)
@@ -205,25 +212,57 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					// we update the one in fastly if this one is newer.
 					mainCert, _, err := getCertsFromChain(ingressSecret.Data["tls.crt"])
 					if err != nil {
-						return ctrl.Result{}, fmt.Errorf("Unable to get certificate from chain, error was: %v", err)
+						errMsg := fmt.Sprintf("Unable to get certificate from chain, error was: %v", err)
+						opLog.Info(errMsg)
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+						if patchErr != nil {
+							// if we can't patch the resource, just log it and return
+							// next time it tries to reconcile, it will just exit here without doing anything else
+							opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+						}
+						return ctrl.Result{}, nil
 					}
 					certDERBlock, _ := pem.Decode(mainCert)
 					if certDERBlock != nil && certDERBlock.Type == "CERTIFICATE" {
 						secretCert, err := x509.ParseCertificate(certDERBlock.Bytes)
 						if err != nil {
-							return ctrl.Result{}, fmt.Errorf("Unable to parse certificate, error was: %v", err)
+							errMsg := fmt.Sprintf("Unable to parse certificate, error was: %v", err)
+							opLog.Info(errMsg)
+							patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+							if patchErr != nil {
+								// if we can't patch the resource, just log it and return
+								// next time it tries to reconcile, it will just exit here without doing anything else
+								opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+							}
+							return ctrl.Result{}, nil
 						}
 						bulkCertificate, err := r.FastlyClient.GetBulkCertificate(&fastly.GetBulkCertificateInput{
 							ID: bulkCertificateIDAnnotation,
 						})
 						if err != nil {
-							return ctrl.Result{}, fmt.Errorf("Unable to get certificate information from Fastly, error was: %v", err)
+							errMsg := fmt.Sprintf("Unable to get certificate information from Fastly, error was: %v", err)
+							opLog.Info(errMsg)
+							patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+							if patchErr != nil {
+								// if we can't patch the resource, just log it and return
+								// next time it tries to reconcile, it will just exit here without doing anything else
+								opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+							}
+							return ctrl.Result{}, nil
 						}
 						if secretCert.NotAfter.After(*bulkCertificate.NotAfter) {
 							opLog.Info(fmt.Sprintf("Certificate has changed, old expiry is %v, new expiry is %v. Updating certificate in Fastly", secretCert.NotAfter, bulkCertificate.NotAfter))
 							err = r.updateCertificate(ctx, ingressSecret, bulkCertificateIDAnnotation)
 							if err != nil {
-								return ctrl.Result{}, fmt.Errorf("Certificate failed to update in Fastly, error was: %v", err)
+								errMsg := fmt.Sprintf("Certificate failed to update in Fastly, error was: %v", err)
+								opLog.Info(errMsg)
+								patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+								if patchErr != nil {
+									// if we can't patch the resource, just log it and return
+									// next time it tries to reconcile, it will just exit here without doing anything else
+									opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+								}
+								return ctrl.Result{}, nil
 							}
 						} else {
 							opLog.Info(fmt.Sprintf("Certificate already uploaded"))
@@ -235,7 +274,15 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					opLog.Info(fmt.Sprintf("Adding certificate into Fastly"))
 					certificateID, err := r.loadCertificate(ctx, ingressSecret, fastlyConfig)
 					if err != nil {
-						return ctrl.Result{}, fmt.Errorf("Certificate failed to load into Fastly, error was: %v", err)
+						errMsg := fmt.Sprintf("Certificate failed to load into Fastly, error was: %v", err)
+						opLog.Info(errMsg)
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+						if patchErr != nil {
+							// if we can't patch the resource, just log it and return
+							// next time it tries to reconcile, it will just exit here without doing anything else
+							opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+						}
+						return ctrl.Result{}, nil
 					}
 					// patch the secret with the bulk-certificate annotation
 					r.patchSecretAnnotations(ctx, ingressSecret, map[string]string{
@@ -247,25 +294,57 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					// we update the one in fastly if this one is newer.
 					mainCert, _, err := getCertsFromChain(ingressSecret.Data["tls.crt"])
 					if err != nil {
-						return ctrl.Result{}, fmt.Errorf("Unable to get certificate from chain, error was: %v", err)
+						errMsg := fmt.Sprintf("Unable to get certificate from chain, error was: %v", err)
+						opLog.Info(errMsg)
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+						if patchErr != nil {
+							// if we can't patch the resource, just log it and return
+							// next time it tries to reconcile, it will just exit here without doing anything else
+							opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+						}
+						return ctrl.Result{}, nil
 					}
 					certDERBlock, _ := pem.Decode(mainCert)
 					if certDERBlock != nil && certDERBlock.Type == "CERTIFICATE" {
 						secretCert, err := x509.ParseCertificate(certDERBlock.Bytes)
 						if err != nil {
-							return ctrl.Result{}, fmt.Errorf("Unable to parse certificate, error was: %v", err)
+							errMsg := fmt.Sprintf("Unable to parse certificate, error was: %v", err)
+							opLog.Info(errMsg)
+							patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+							if patchErr != nil {
+								// if we can't patch the resource, just log it and return
+								// next time it tries to reconcile, it will just exit here without doing anything else
+								opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+							}
+							return ctrl.Result{}, nil
 						}
 						bulkCertificate, err := r.FastlyClient.GetBulkCertificate(&fastly.GetBulkCertificateInput{
 							ID: bulkCertificateIDAnnotation,
 						})
 						if err != nil {
-							return ctrl.Result{}, fmt.Errorf("Unable to get certificate information from Fastly, error was: %v", err)
+							errMsg := fmt.Sprintf("Unable to get certificate information from Fastly, error was: %v", err)
+							opLog.Info(errMsg)
+							patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+							if patchErr != nil {
+								// if we can't patch the resource, just log it and return
+								// next time it tries to reconcile, it will just exit here without doing anything else
+								opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+							}
+							return ctrl.Result{}, nil
 						}
 						if secretCert.NotAfter.After(*bulkCertificate.NotAfter) {
 							opLog.Info(fmt.Sprintf("Certificate has changed, old expiry is %v, new expiry is %v. Updating certificate in Fastly", secretCert.NotAfter, bulkCertificate.NotAfter))
 							err = r.updateCertificate(ctx, ingressSecret, bulkCertificateIDAnnotation)
 							if err != nil {
-								return ctrl.Result{}, fmt.Errorf("Certificate failed to update in Fastly, error was: %v", err)
+								errMsg := fmt.Sprintf("Certificate failed to update in Fastly, error was: %v", err)
+								opLog.Info(errMsg)
+								patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+								if patchErr != nil {
+									// if we can't patch the resource, just log it and return
+									// next time it tries to reconcile, it will just exit here without doing anything else
+									opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+								}
+								return ctrl.Result{}, nil
 							}
 						} else {
 							opLog.Info(fmt.Sprintf("Certificate already uploaded"))
@@ -425,17 +504,25 @@ func (r *IngressSecretReconciler) addPrivateKey(ctx context.Context, ingressSecr
 		}
 		// if the key already exists, search fastly for it
 		// @TODO filtering or searching by publickeysha1 would be nicer (not supported by API yet)
-		privateKeys, err := r.FastlyClient.ListPrivateKeys(&fastly.ListPrivateKeysInput{
-			PageSize: fastly.Uint(1000),
+		privateKeys, err2 := r.FastlyClient.ListPrivateKeys(&fastly.ListPrivateKeysInput{
+			PageSize: fastly.Uint(2000),
 		})
-		if err != nil {
-			return "", err
+		if err2 != nil {
+			return "", err2
 		}
-		_, privateKeyID = containsPrivateKey(privateKeys, publicKeySha1)
-		r.Log.WithValues("ingress", types.NamespacedName{
-			Name:      ingressSecret.ObjectMeta.Name,
-			Namespace: ingressSecret.ObjectMeta.Namespace,
-		}).Info(fmt.Sprintf("Privatekey with ID %s already exists", privateKeyID))
+		exists, privateKeyID := containsPrivateKey(privateKeys, publicKeySha1)
+		if exists {
+			r.Log.WithValues("ingress", types.NamespacedName{
+				Name:      ingressSecret.ObjectMeta.Name,
+				Namespace: ingressSecret.ObjectMeta.Namespace,
+			}).Info(fmt.Sprintf("Privatekey with ID %s already exists", privateKeyID))
+		} else {
+			r.Log.WithValues("ingress", types.NamespacedName{
+				Name:      ingressSecret.ObjectMeta.Name,
+				Namespace: ingressSecret.ObjectMeta.Namespace,
+			}).Info(fmt.Sprintf("Privatekey doesn't exist: %v", err))
+		}
+		return privateKeyID, nil
 	}
 	if privateKeyID == "" {
 		// we created a private key that didnt exist, we patch the ingress secret with the ID
