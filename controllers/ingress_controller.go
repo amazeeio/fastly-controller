@@ -397,28 +397,23 @@ func (r *IngressReconciler) deleteExternalResources(ctx context.Context,
 		))
 		// if there are any domains in the slice, then we need to clone the service and remove the domains from it
 		if len(delDomains) > 0 {
-			clonedVersion := latest
-			// but if the latest version is active, then we want to clone it first
-			if latest.Active == true {
-				var err error
-				// if the latest version is active, then we should clone it
-				clonedVersion, err = r.FastlyClient.CloneVersion(
-					&fastly.CloneVersionInput{
-						Service: fastlyConfig.ServiceID,
-						Version: latest.Number,
-					})
-				if err != nil {
-					// @TODO: log the error and drop out, maybe do something else to help prevent cloning it again and again?
-					// check for existing non-activated versions?
-					opLog.Info(fmt.Sprintf("Unable to clone service version in fastly, error was: %v", err))
-					return nil
-				}
-				opLog.Info(fmt.Sprintf(
-					"Cloned version %d of service %s",
-					clonedVersion.Number,
-					fastlyConfig.ServiceID,
-				))
+			// if the latest version is active, then we should clone it
+			clonedVersion, err := r.FastlyClient.CloneVersion(
+				&fastly.CloneVersionInput{
+					Service: fastlyConfig.ServiceID,
+					Version: latest.Number,
+				})
+			if err != nil {
+				// @TODO: log the error and drop out, maybe do something else to help prevent cloning it again and again?
+				// check for existing non-activated versions?
+				opLog.Info(fmt.Sprintf("Unable to clone service version in fastly, error was: %v", err))
+				return nil
 			}
+			opLog.Info(fmt.Sprintf(
+				"Cloned version %d of service %s",
+				clonedVersion.Number,
+				fastlyConfig.ServiceID,
+			))
 			comment := fmt.Sprintf(
 				"Domains in ingress %s removed by fastly-controller: cluster:%s:namespace:%s",
 				ingress.ObjectMeta.Name,
