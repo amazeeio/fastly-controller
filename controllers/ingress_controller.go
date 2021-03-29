@@ -150,45 +150,29 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			}
 			// if we have any domains to add to the service, we do that here
 			if len(domainsToAdd) > 0 {
-				/*
-					//TODO: remove this section if the latest.Active check works
-					availableVersions, err := r.FastlyClient.ListVersions(&fastly.ListVersionsInput{
+				// if the latest version is active, then we should clone it
+				clonedVersion, err := r.FastlyClient.CloneVersion(
+					&fastly.CloneVersionInput{
 						Service: fastlyConfig.ServiceID,
+						Version: latest.Number,
 					})
-					for _, availableVersion := range availableVersions {
-						fmt.Println(availableVersion.Active)
+				if err != nil {
+					// @TODO: log the error and drop out, maybe do something else to help prevent cloning it again and again?
+					// check for existing non-activated versions?
+					opLog.Info(fmt.Sprintf("Unable to clone service version in fastly, pausing ingress, error was: %v", err))
+					patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+					if patchErr != nil {
+						// if we can't patch the resource, just log it and return
+						// next time it tries to reconcile, it will just exit here without doing anything else
+						opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, giving up, error was: %v", patchErr))
 					}
-				*/
-
-				// use the latest version
-				clonedVersion := latest
-				// but if the latest version is active, then we want to clone it first
-				if latest.Active == true {
-					var err error
-					// if the latest version is active, then we should clone it
-					clonedVersion, err = r.FastlyClient.CloneVersion(
-						&fastly.CloneVersionInput{
-							Service: fastlyConfig.ServiceID,
-							Version: latest.Number,
-						})
-					if err != nil {
-						// @TODO: log the error and drop out, maybe do something else to help prevent cloning it again and again?
-						// check for existing non-activated versions?
-						opLog.Info(fmt.Sprintf("Unable to clone service version in fastly, pausing ingress, error was: %v", err))
-						patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
-						if patchErr != nil {
-							// if we can't patch the resource, just log it and return
-							// next time it tries to reconcile, it will just exit here without doing anything else
-							opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, giving up, error was: %v", patchErr))
-						}
-						return ctrl.Result{}, nil
-					}
-					opLog.Info(fmt.Sprintf(
-						"Cloned version %d of service %s",
-						clonedVersion.Number,
-						fastlyConfig.ServiceID,
-					))
+					return ctrl.Result{}, nil
 				}
+				opLog.Info(fmt.Sprintf(
+					"Cloned version %d of service %s",
+					clonedVersion.Number,
+					fastlyConfig.ServiceID,
+				))
 				// once we have the latest version, then we can update it
 				comment := fmt.Sprintf(
 					"Domains in ingress %s added by fastly-controller: cluster:%s:namespace:%s",
@@ -196,16 +180,6 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 					r.ClusterName,
 					ingress.ObjectMeta.Namespace,
 				)
-				if clonedVersion.Comment != "" {
-					// if there is already a comment, then add our comment to the end
-					comment = fmt.Sprintf(
-						"%s\nDomains in ingress %s added by fastly-controller: cluster:%s:namespace:%s",
-						clonedVersion.Comment,
-						ingress.ObjectMeta.Name,
-						r.ClusterName,
-						ingress.ObjectMeta.Namespace,
-					)
-				}
 				// update the version in fastly
 				version, err := r.FastlyClient.UpdateVersion(
 					&fastly.UpdateVersionInput{
@@ -423,28 +397,23 @@ func (r *IngressReconciler) deleteExternalResources(ctx context.Context,
 		))
 		// if there are any domains in the slice, then we need to clone the service and remove the domains from it
 		if len(delDomains) > 0 {
-			clonedVersion := latest
-			// but if the latest version is active, then we want to clone it first
-			if latest.Active == true {
-				var err error
-				// if the latest version is active, then we should clone it
-				clonedVersion, err = r.FastlyClient.CloneVersion(
-					&fastly.CloneVersionInput{
-						Service: fastlyConfig.ServiceID,
-						Version: latest.Number,
-					})
-				if err != nil {
-					// @TODO: log the error and drop out, maybe do something else to help prevent cloning it again and again?
-					// check for existing non-activated versions?
-					opLog.Info(fmt.Sprintf("Unable to clone service version in fastly, error was: %v", err))
-					return nil
-				}
-				opLog.Info(fmt.Sprintf(
-					"Cloned version %d of service %s",
-					clonedVersion.Number,
-					fastlyConfig.ServiceID,
-				))
+			// if the latest version is active, then we should clone it
+			clonedVersion, err := r.FastlyClient.CloneVersion(
+				&fastly.CloneVersionInput{
+					Service: fastlyConfig.ServiceID,
+					Version: latest.Number,
+				})
+			if err != nil {
+				// @TODO: log the error and drop out, maybe do something else to help prevent cloning it again and again?
+				// check for existing non-activated versions?
+				opLog.Info(fmt.Sprintf("Unable to clone service version in fastly, error was: %v", err))
+				return nil
 			}
+			opLog.Info(fmt.Sprintf(
+				"Cloned version %d of service %s",
+				clonedVersion.Number,
+				fastlyConfig.ServiceID,
+			))
 			comment := fmt.Sprintf(
 				"Domains in ingress %s removed by fastly-controller: cluster:%s:namespace:%s",
 				ingress.ObjectMeta.Name,
@@ -521,13 +490,24 @@ func (r *IngressReconciler) deleteExternalResources(ctx context.Context,
 }
 
 func (r *IngressReconciler) getLatestServiceDomains(fastlyConfig fastlyAPI) (*fastly.Version, []*fastly.Domain, error) {
-	latest, err := r.FastlyClient.LatestVersion(
-		&fastly.LatestVersionInput{
-			Service: fastlyConfig.ServiceID,
-		})
+	// get service information from fastly
+	service, err := r.FastlyClient.GetService(&fastly.GetServiceInput{
+		ID: fastlyConfig.ServiceID,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// iterate over the services to get the latest active version
+	latest := service.Versions[len(service.Versions)-1]
+	for _, version := range service.Versions {
+		if version.Active {
+			latest = version
+			break
+		}
+	}
+
+	// get all the domains from the active service
 	domains, err := r.FastlyClient.ListDomains(
 		&fastly.ListDomainsInput{
 			Service: fastlyConfig.ServiceID,
@@ -536,6 +516,8 @@ func (r *IngressReconciler) getLatestServiceDomains(fastlyConfig fastlyAPI) (*fa
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// return these
 	return latest, domains, nil
 }
 
