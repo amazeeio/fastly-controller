@@ -21,11 +21,14 @@ import (
 	"os"
 
 	"github.com/amazeeio/fastly-controller/controllers"
+	"github.com/amazeeio/fastly-controller/handlers"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"gopkg.in/robfig/cron.v2"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -46,6 +49,8 @@ func main() {
 	var fastlyAPIToken string
 	var fastlyPlatformTLSConfiguration string
 	var clusterName string
+	var pausedStatusCron string
+
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
@@ -55,12 +60,15 @@ func main() {
 		"The default Fastly PlatformTLS ID to use.")
 	flag.StringVar(&clusterName, "cluster-name", "",
 		"The name of the cluster the controller is deployed in.")
+	flag.StringVar(&pausedStatusCron, "paused-status-cron", "*/5 * * * *",
+		"The cron definition for checking paused ingresses.")
 	flag.Parse()
 
 	// set a global API token for all requests, otherwise annotation will be used
 	fastlyAPIToken = getEnv("FASTLY_API_TOKEN", fastlyAPIToken)
 	fastlyPlatformTLSConfiguration = getEnv("FASTLY_PLATFORM_TLS_CONFIGURATION_ID", fastlyPlatformTLSConfiguration)
 	clusterName = getEnv("CLUSTER_NAME", clusterName)
+	pausedStatusCron = getEnv("PAUSED_STATUS_CRON", pausedStatusCron)
 
 	if fastlyAPIToken == "" {
 		setupLog.Error(fmt.Errorf("%s", "Environment variable FASTLY_API_TOKEN not set"), "unable to start manager")
@@ -89,6 +97,18 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+
+	resourceCleanup := handlers.NewCleanup(
+		mgr.GetClient(),
+		true,
+	)
+	c := cron.New()
+	setupLog.Info("setting paused status check cron") // use cron to run a paused status check
+	// this will check any `Ingress` resources for the paused status
+	// and attempt to unpause them
+	c.AddFunc(pausedStatusCron, func() {
+		resourceCleanup.CheckPausedCertStatus()
+	})
 
 	// +kubebuilder:scaffold:builder
 
