@@ -46,7 +46,13 @@ func (h *Cleanup) CheckPausedCertStatus() {
 	for _, ns := range namespaces.Items {
 		opLog.Info(fmt.Sprintf("Checking LagoonBuilds in namespace %s", ns.ObjectMeta.Name))
 		ingresses := &networkv1beta1.IngressList{}
-		if err := h.Client.List(context.Background(), ingresses); err != nil {
+		listOption := (&client.ListOptions{}).ApplyOptions([]client.ListOption{
+			client.InNamespace(ns.ObjectMeta.Name),
+			client.MatchingLabels(map[string]string{
+				"fastly.amazee.io/paused": "true",
+			}),
+		})
+		if err := h.Client.List(context.Background(), ingresses, listOption); err != nil {
 			opLog.Error(err, fmt.Sprintf("Unable to list Ingress resource in namespace, there may be none or something went wrong"))
 			return
 		}
@@ -64,7 +70,7 @@ func (h *Cleanup) CheckPausedCertStatus() {
 				// and if the reason is unable to find a secret
 				if strings.Contains(reason, "Unable to find secret of") {
 					// then attempt the process to fix it, but give up after 5 attempts
-					if ingress.ObjectMeta.Annotations["fastly.amazee.io/paused"] == "true" && retryCount <= 5 {
+					if retryCount <= 5 {
 						//increment the retry count by 1
 						retryCount = retryCount + 1
 
@@ -72,8 +78,11 @@ func (h *Cleanup) CheckPausedCertStatus() {
 						mergePatch, err := json.Marshal(map[string]interface{}{
 							"metadata": map[string]interface{}{
 								"annotations": map[string]interface{}{
-									"fastly.amazee.io/paused":             "false",
+									"fastly.amazee.io/paused":             nil,
 									"fastly.amazee.io/paused-retry-count": fmt.Sprintf("%d", retryCount),
+								},
+								"labels": map[string]interface{}{
+									"fastly.amazee.io/paused": "false",
 								},
 							},
 						})

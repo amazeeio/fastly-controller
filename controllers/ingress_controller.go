@@ -64,7 +64,7 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// }
 	serviceID := ingress.ObjectMeta.Annotations["fastly.amazee.io/service-id"]
 	paused := "false"
-	if ingress.ObjectMeta.Annotations["fastly.amazee.io/paused"] == "true" {
+	if ingress.ObjectMeta.Labels["fastly.amazee.io/paused"] == "true" {
 		paused = "true"
 	}
 	// deleteexternal prevents the controller from deleting anything in fastly or in cluster
@@ -591,7 +591,10 @@ func (r *IngressReconciler) patchSecret(
 	annotations := map[string]interface{}{
 		"fastly.amazee.io/service-id": fastlyConfig.ServiceID,
 		"fastly.amazee.io/watch":      "true",
-		"fastly.amazee.io/paused":     fmt.Sprintf("%v", paused),
+		"fastly.amazee.io/paused":     nil,
+	}
+	labels := map[string]interface{}{
+		"fastly.amazee.io/paused": fmt.Sprintf("%v", paused),
 	}
 	// add the custom api secret to this ingress secret if one is provided by the ingress
 	// this is so that actions on the ingress secret can be taken against the fastly api if not using the default
@@ -602,6 +605,7 @@ func (r *IngressReconciler) patchSecret(
 	mergePatch, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
 			"annotations": annotations,
+			"labels":      labels,
 		},
 	})
 	if err != nil {
@@ -629,9 +633,12 @@ func (r *IngressReconciler) patchPausedStatus(
 	mergePatch, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
 			"annotations": map[string]interface{}{
-				"fastly.amazee.io/paused":        fmt.Sprintf("%v", paused),
+				"fastly.amazee.io/paused":        nil,
 				"fastly.amazee.io/paused-reason": reason,
 				"fastly.amazee.io/paused-at":     time.Now().UTC().Format("2006-01-02 15:04:05"),
+			},
+			"labels": map[string]interface{}{
+				"fastly.amazee.io/paused": fmt.Sprintf("%v", paused),
 			},
 		},
 	})
