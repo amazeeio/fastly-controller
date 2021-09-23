@@ -49,7 +49,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 	// pausing prevents the controller from acting on this object
 	// it prevents anything happening in fastly
 	paused := "false"
-	if ingressSecret.ObjectMeta.Annotations["fastly.amazee.io/paused"] == "true" {
+	if ingressSecret.ObjectMeta.Labels["fastly.amazee.io/paused"] == "true" {
 		paused = "true"
 	}
 	// deleteexternal prevents the controller from deleting anything in fastly or in cluster
@@ -424,9 +424,12 @@ func (r *IngressSecretReconciler) patchPausedStatus(
 	mergePatch, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
 			"annotations": map[string]interface{}{
-				"fastly.amazee.io/paused":        fmt.Sprintf("%v", paused),
+				"fastly.amazee.io/paused":        nil,
 				"fastly.amazee.io/paused-reason": reason,
 				"fastly.amazee.io/paused-at":     time.Now().UTC().Format("2006-01-02 15:04:05"),
+			},
+			"labels": map[string]interface{}{
+				"fastly.amazee.io/paused": fmt.Sprintf("%v", paused),
 			},
 		},
 	})
