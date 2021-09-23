@@ -46,6 +46,7 @@ type IngressReconciler struct {
 // +kubebuilder:rbac:groups=*,resources=ingresses,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=*,resources=ingress/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=*,resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=*,resources=namespaces,verbs=get;list;watch
 
 // Reconcile .
 func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
