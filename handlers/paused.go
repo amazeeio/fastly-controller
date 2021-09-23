@@ -36,15 +36,14 @@ func NewCleanup(client client.Client, enableDebug bool) *Cleanup {
 // upload their certificate to fastly and will unpause them to allow them to retry
 // after 5 attempts it will give up
 func (h *Cleanup) CheckPausedCertStatus() {
-	fmt.Println("paused")
 	opLog := ctrl.Log.WithName("handlers").WithName("PausedCertStatusCheck")
 	namespaces := &corev1.NamespaceList{}
 	if err := h.Client.List(context.Background(), namespaces); err != nil {
-		opLog.Error(err, fmt.Sprintf("Unable to list namespaces created by Lagoon, there may be none or something went wrong"))
+		opLog.Error(err, fmt.Sprintf("Unable to list namespaces, there may be none or something went wrong"))
 		return
 	}
 	for _, ns := range namespaces.Items {
-		opLog.Info(fmt.Sprintf("Checking LagoonBuilds in namespace %s", ns.ObjectMeta.Name))
+		opLog.Info(fmt.Sprintf("Checking ingresses in namespace %s", ns.ObjectMeta.Name))
 		ingresses := &networkv1beta1.IngressList{}
 		listOption := (&client.ListOptions{}).ApplyOptions([]client.ListOption{
 			client.InNamespace(ns.ObjectMeta.Name),

@@ -72,7 +72,7 @@ func main() {
 	fastlyAPIToken = getEnv("FASTLY_API_TOKEN", fastlyAPIToken)
 	fastlyPlatformTLSConfiguration = getEnv("FASTLY_PLATFORM_TLS_CONFIGURATION_ID", fastlyPlatformTLSConfiguration)
 	clusterName = getEnv("CLUSTER_NAME", clusterName)
-	enablePausedStatusCron = getEnvBool("ENABEL_PAUSED_STATUS_CRON", enablePausedStatusCron)
+	enablePausedStatusCron = getEnvBool("ENABLE_PAUSED_STATUS_CRON", enablePausedStatusCron)
 	pausedStatusCron = getEnv("PAUSED_STATUS_CRON", pausedStatusCron)
 
 	if fastlyAPIToken == "" {
@@ -108,14 +108,15 @@ func main() {
 		true,
 	)
 	c := cron.New()
-	setupLog.Info("setting paused status check cron") // use cron to run a paused status check
 	// this will check any `Ingress` resources for the paused status
 	// and attempt to unpause them
 	if enablePausedStatusCron {
+		setupLog.Info("setting paused status check cron") // use cron to run a paused status check
 		c.AddFunc(pausedStatusCron, func() {
 			resourceCleanup.CheckPausedCertStatus()
 		})
 	}
+	c.Start()
 
 	// +kubebuilder:scaffold:builder
 
