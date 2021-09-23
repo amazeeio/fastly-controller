@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/amazeeio/fastly-controller/controllers"
 	"github.com/amazeeio/fastly-controller/handlers"
@@ -49,6 +50,7 @@ func main() {
 	var fastlyAPIToken string
 	var fastlyPlatformTLSConfiguration string
 	var clusterName string
+	var enablePausedStatusCron bool
 	var pausedStatusCron string
 
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
@@ -60,6 +62,8 @@ func main() {
 		"The default Fastly PlatformTLS ID to use.")
 	flag.StringVar(&clusterName, "cluster-name", "",
 		"The name of the cluster the controller is deployed in.")
+	flag.BoolVar(&enablePausedStatusCron, "enable-paused-status-cron", false,
+		"Enable the paused status cron check for ingresses.")
 	flag.StringVar(&pausedStatusCron, "paused-status-cron", "*/5 * * * *",
 		"The cron definition for checking paused ingresses.")
 	flag.Parse()
@@ -68,6 +72,7 @@ func main() {
 	fastlyAPIToken = getEnv("FASTLY_API_TOKEN", fastlyAPIToken)
 	fastlyPlatformTLSConfiguration = getEnv("FASTLY_PLATFORM_TLS_CONFIGURATION_ID", fastlyPlatformTLSConfiguration)
 	clusterName = getEnv("CLUSTER_NAME", clusterName)
+	enablePausedStatusCron = getEnvBool("ENABEL_PAUSED_STATUS_CRON", enablePausedStatusCron)
 	pausedStatusCron = getEnv("PAUSED_STATUS_CRON", pausedStatusCron)
 
 	if fastlyAPIToken == "" {
@@ -106,9 +111,11 @@ func main() {
 	setupLog.Info("setting paused status check cron") // use cron to run a paused status check
 	// this will check any `Ingress` resources for the paused status
 	// and attempt to unpause them
-	c.AddFunc(pausedStatusCron, func() {
-		resourceCleanup.CheckPausedCertStatus()
-	})
+	if enablePausedStatusCron {
+		c.AddFunc(pausedStatusCron, func() {
+			resourceCleanup.CheckPausedCertStatus()
+		})
+	}
 
 	// +kubebuilder:scaffold:builder
 
@@ -148,6 +155,16 @@ func main() {
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
+	}
+	return fallback
+}
+
+// accepts fallback values 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False
+// anything else is false.
+func getEnvBool(key string, fallback bool) bool {
+	if value, ok := os.LookupEnv(key); ok {
+		rVal, _ := strconv.ParseBool(value)
+		return rVal
 	}
 	return fallback
 }
