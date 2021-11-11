@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,15 +49,18 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 
 	// pausing prevents the controller from acting on this object
 	// it prevents anything happening in fastly
-	paused := "false"
-	if ingressSecret.ObjectMeta.Labels["fastly.amazee.io/paused"] == "true" {
-		paused = "true"
+	paused := false
+	if pausedVal, ok := ingressSecret.ObjectMeta.Annotations["fastly.amazee.io/paused"]; ok {
+		result, _ := strconv.ParseBool(pausedVal)
+		paused = result
 	}
 	// deleteexternal prevents the controller from deleting anything in fastly or in cluster
-	deleteExternal := "true"
-	if ingressSecret.ObjectMeta.Annotations["fastly.amazee.io/delete-external-resources"] != "true" {
-		deleteExternal = "false"
+	deleteExternal := true
+	if deleteExternalVal, ok := ingressSecret.ObjectMeta.Annotations["fastly.amazee.io/delete-external-resources"]; ok {
+		result, _ := strconv.ParseBool(deleteExternalVal)
+		deleteExternal = result
 	}
+
 	// setup the fastly client
 	var err error
 	// start with the global configuration
@@ -115,7 +119,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 
 	// examine DeletionTimestamp to determine if object is under deletion
 	if ingressSecret.ObjectMeta.DeletionTimestamp.IsZero() && ingressSecret.ObjectMeta.Name != "" {
-		if paused != "true" {
+		if !paused {
 			// check if the key is populated, if the size is 0 it means there is no key yet
 			// store the original annotation values for later use
 			publicKeySha1Annotation := ingressSecret.Annotations["fastly.amazee.io/public-key-sha1"]
@@ -394,7 +398,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 		}
 	} else {
 		// The object is being deleted
-		if deleteExternal == "true" || paused != "true" {
+		if deleteExternal || !paused {
 			if err := r.deleteExternalResources(ctx, ingressSecret); err != nil {
 				return ctrl.Result{}, fmt.Errorf("Failed to delete external resources, error was: %v", err)
 			}
