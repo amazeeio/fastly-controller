@@ -21,13 +21,15 @@ type cleanup interface {
 // Cleanup is used for cleaning up old pods or resources.
 type Cleanup struct {
 	Client      client.Client
+	MaxRetries  int
 	EnableDebug bool
 }
 
 // NewCleanup returns a cleanup with controller-runtime client.
-func NewCleanup(client client.Client, enableDebug bool) *Cleanup {
+func NewCleanup(client client.Client, maxRetries int, enableDebug bool) *Cleanup {
 	return &Cleanup{
 		Client:      client,
+		MaxRetries:  maxRetries,
 		EnableDebug: enableDebug,
 	}
 }
@@ -68,8 +70,8 @@ func (h *Cleanup) CheckPausedCertStatus() {
 				}
 				// and if the reason is unable to find a secret
 				if strings.Contains(reason, "Unable to find secret of") {
-					// then attempt the process to fix it, but give up after 5 attempts
-					if retryCount <= 5 {
+					// then attempt the process to fix it, but give up after `h.MaxRetries` attempts
+					if retryCount <= h.MaxRetries {
 						//increment the retry count by 1
 						retryCount = retryCount + 1
 

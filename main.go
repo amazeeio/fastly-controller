@@ -52,6 +52,7 @@ func main() {
 	var clusterName string
 	var enablePausedStatusCron bool
 	var pausedStatusCron string
+	var maxRetryCount int
 
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
@@ -66,6 +67,8 @@ func main() {
 		"Enable the paused status cron check for ingresses.")
 	flag.StringVar(&pausedStatusCron, "paused-status-cron", "*/5 * * * *",
 		"The cron definition for checking paused ingresses.")
+	flag.IntVar(&maxRetryCount, "max-retry-count", 5,
+		"The number of times to retry checking paused ingresses.")
 	flag.Parse()
 
 	// set a global API token for all requests, otherwise annotation will be used
