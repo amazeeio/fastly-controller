@@ -108,6 +108,7 @@ func main() {
 
 	resourceCleanup := handlers.NewCleanup(
 		mgr.GetClient(),
+		maxRetryCount,
 		true,
 	)
 	c := cron.New()
