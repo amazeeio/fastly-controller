@@ -60,6 +60,12 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 		result, _ := strconv.ParseBool(deleteExternalVal)
 		deleteExternal = result
 	}
+	// check if `tls-acme` is passed in from the ingress
+	tlsAcme := true
+	if tlsAcmeVal, ok := ingressSecret.ObjectMeta.Annotations["fastly.amazee.io/tls-acme"]; ok {
+		result, _ := strconv.ParseBool(tlsAcmeVal)
+		tlsAcme = result
+	}
 
 	// setup the fastly client
 	var err error
@@ -119,7 +125,8 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 
 	// examine DeletionTimestamp to determine if object is under deletion
 	if ingressSecret.ObjectMeta.DeletionTimestamp.IsZero() && ingressSecret.ObjectMeta.Name != "" {
-		if !paused {
+		// if the secret is not paused, and tls-acme is enabled on the ingress
+		if !paused && tlsAcme {
 			// check if the key is populated, if the size is 0 it means there is no key yet
 			// store the original annotation values for later use
 			publicKeySha1Annotation := ingressSecret.Annotations["fastly.amazee.io/public-key-sha1"]
