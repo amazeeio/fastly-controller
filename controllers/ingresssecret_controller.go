@@ -13,6 +13,7 @@ import (
 	"github.com/fastly/go-fastly/fastly"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	networkv1beta1 "k8s.io/api/networking/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -65,6 +66,14 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 	if tlsAcmeVal, ok := ingressSecret.ObjectMeta.Annotations["fastly.amazee.io/tls-acme"]; ok {
 		result, _ := strconv.ParseBool(tlsAcmeVal)
 		tlsAcme = result
+	}
+
+	// check if `ingress-acme` is configured on the ingress, this is then passed through to the ingress secret
+	// and is used by the secret to determine if it is to be uploaded into fastly or not
+	// ingress domains will still be added to the fastly service, tls-acme is just used for the certificates only
+	ingressName := ""
+	if ingressNameVal, ok := ingressSecret.ObjectMeta.Annotations["fastly.amazee.io/ingress-name"]; ok {
+		ingressName = ingressNameVal
 	}
 
 	// setup the fastly client
@@ -279,7 +288,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 								return ctrl.Result{}, nil
 							}
 						} else {
-							opLog.Info(fmt.Sprintf("Certificate already uploaded"))
+							opLog.Info(fmt.Sprintf("Certificate already uploaded, possibly renewed"))
 						}
 					}
 				} else if bulkCertificateIDAnnotation == "" {
@@ -402,6 +411,30 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					"fastly.amazee.io/old-private-key-id":  "",
 				})
 			}
+			// if the secret has the ingress name attached, and the certificates have been uploaded
+			// patch the associated ingress to unpause it
+			if ingressName != "" {
+				var ingress networkv1beta1.Ingress
+				if err := r.Get(ctx, types.NamespacedName{
+					Name:      ingressName,
+					Namespace: ingressSecret.ObjectMeta.Namespace,
+				}, &ingress); err != nil {
+					return ctrl.Result{}, ignoreNotFound(err)
+				}
+				if pausedIngressVal, ok := ingress.ObjectMeta.Annotations["fastly.amazee.io/paused"]; ok {
+					result, _ := strconv.ParseBool(pausedIngressVal)
+					if result {
+						opLog.Info(fmt.Sprintf("Unpausing ingress %s after adding certificate and key", ingressName))
+						patchErr := r.patchIngressPausedStatus(ctx, ingress, fastlyConfig.ServiceID, "", false)
+						if patchErr != nil {
+							// if we can't patch the resource, just log it and return
+							// next time it tries to reconcile, it will just exit here without doing anything else
+							opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
+						}
+						return ctrl.Result{}, nil
+					}
+				}
+			}
 		}
 	} else {
 		// The object is being deleted
@@ -445,23 +478,75 @@ func (r *IngressSecretReconciler) patchPausedStatus(
 		},
 	})
 	if err != nil {
-		r.Log.WithValues("ingress", types.NamespacedName{
+		r.Log.WithValues("ingressSecret", types.NamespacedName{
 			Name:      ingressSecret.ObjectMeta.Name,
 			Namespace: ingressSecret.ObjectMeta.Namespace,
 		}).Info(fmt.Sprintf("Unable to create mergepatch for %s, error was: %v", ingressSecret.ObjectMeta.Name, err))
 		return nil
 	}
 	if err := r.Patch(ctx, &ingressSecret, client.ConstantPatch(types.MergePatchType, mergePatch)); err != nil {
-		r.Log.WithValues("ingress", types.NamespacedName{
+		r.Log.WithValues("ingressSecret", types.NamespacedName{
 			Name:      ingressSecret.ObjectMeta.Name,
 			Namespace: ingressSecret.ObjectMeta.Namespace,
 		}).Info(fmt.Sprintf("Unable to patch ingress secret %s, error was: %v", ingressSecret.ObjectMeta.Name, err))
 		return nil
 	}
-	r.Log.WithValues("ingress", types.NamespacedName{
+	r.Log.WithValues("ingressSecret", types.NamespacedName{
 		Name:      ingressSecret.ObjectMeta.Name,
 		Namespace: ingressSecret.ObjectMeta.Namespace,
 	}).Info(fmt.Sprintf("Patched ingress secret %s", ingressSecret.ObjectMeta.Name))
+	return nil
+}
+
+// patch the ingress with the pause status to prevent anything from being done
+// add the paused-reason to the annotations so user can see why it was paused and try to fix any issues it before unpausing
+func (r *IngressSecretReconciler) patchIngressPausedStatus(
+	ctx context.Context,
+	ingress networkv1beta1.Ingress,
+	serviceID string,
+	reason string,
+	paused bool,
+) error {
+	// set the paused annotations to nil if this is unpaused
+	annotations := map[string]interface{}{
+		"fastly.amazee.io/paused-reason":      nil,
+		"fastly.amazee.io/paused-at":          nil,
+		"fastly.amazee.io/paused-retry-count": nil,
+	}
+	if paused {
+		// if paused, set the annotations
+		annotations = map[string]interface{}{
+			"fastly.amazee.io/paused-reason": reason,
+			"fastly.amazee.io/paused-at":     time.Now().UTC().Format("2006-01-02 15:04:05"),
+		}
+	}
+	labels := map[string]interface{}{
+		"fastly.amazee.io/paused": fmt.Sprintf("%v", paused),
+	}
+	mergePatch, err := json.Marshal(map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": annotations,
+			"labels":      labels,
+		},
+	})
+	if err != nil {
+		r.Log.WithValues("ingress", types.NamespacedName{
+			Name:      ingress.ObjectMeta.Name,
+			Namespace: ingress.ObjectMeta.Namespace,
+		}).Info(fmt.Sprintf("Unable to create mergepatch for %s, error was: %v", ingress.ObjectMeta.Name, err))
+		return nil
+	}
+	if err := r.Patch(ctx, &ingress, client.ConstantPatch(types.MergePatchType, mergePatch)); err != nil {
+		r.Log.WithValues("ingress", types.NamespacedName{
+			Name:      ingress.ObjectMeta.Name,
+			Namespace: ingress.ObjectMeta.Namespace,
+		}).Info(fmt.Sprintf("Unable to patch ingress %s, error was: %v", ingress.ObjectMeta.Name, err))
+		return nil
+	}
+	r.Log.WithValues("ingress", types.NamespacedName{
+		Name:      ingress.ObjectMeta.Name,
+		Namespace: ingress.ObjectMeta.Namespace,
+	}).Info(fmt.Sprintf("Patched ingress %s", ingress.ObjectMeta.Name))
 	return nil
 }
 
