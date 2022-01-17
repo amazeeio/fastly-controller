@@ -21,13 +21,15 @@ type cleanup interface {
 // Cleanup is used for cleaning up old pods or resources.
 type Cleanup struct {
 	Client      client.Client
+	MaxRetries  int
 	EnableDebug bool
 }
 
 // NewCleanup returns a cleanup with controller-runtime client.
-func NewCleanup(client client.Client, enableDebug bool) *Cleanup {
+func NewCleanup(client client.Client, maxRetries int, enableDebug bool) *Cleanup {
 	return &Cleanup{
 		Client:      client,
+		MaxRetries:  maxRetries,
 		EnableDebug: enableDebug,
 	}
 }
@@ -37,13 +39,13 @@ func NewCleanup(client client.Client, enableDebug bool) *Cleanup {
 // after 5 attempts it will give up
 func (h *Cleanup) CheckPausedCertStatus() {
 	opLog := ctrl.Log.WithName("handlers").WithName("PausedCertStatusCheck")
+	opLog.Info(fmt.Sprintf("Running paused status check job"))
 	namespaces := &corev1.NamespaceList{}
 	if err := h.Client.List(context.Background(), namespaces); err != nil {
 		opLog.Error(err, fmt.Sprintf("Unable to list namespaces, there may be none or something went wrong"))
 		return
 	}
 	for _, ns := range namespaces.Items {
-		opLog.Info(fmt.Sprintf("Checking ingresses in namespace %s", ns.ObjectMeta.Name))
 		ingresses := &networkv1beta1.IngressList{}
 		listOption := (&client.ListOptions{}).ApplyOptions([]client.ListOption{
 			client.InNamespace(ns.ObjectMeta.Name),
@@ -54,6 +56,10 @@ func (h *Cleanup) CheckPausedCertStatus() {
 		if err := h.Client.List(context.Background(), ingresses, listOption); err != nil {
 			opLog.Error(err, fmt.Sprintf("Unable to list Ingress resource in namespace, there may be none or something went wrong"))
 			return
+		}
+		if len(ingresses.Items) > 0 {
+			// if there are any ingresses in the selector response, then print a debug message
+			opLog.Info(fmt.Sprintf("Checking ingresses in namespace %s", ns.ObjectMeta.Name))
 		}
 		for _, ingress := range ingresses.Items {
 			// check if a reason exists
@@ -68,8 +74,8 @@ func (h *Cleanup) CheckPausedCertStatus() {
 				}
 				// and if the reason is unable to find a secret
 				if strings.Contains(reason, "Unable to find secret of") {
-					// then attempt the process to fix it, but give up after 5 attempts
-					if retryCount <= 5 {
+					// then attempt the process to fix it, but give up after `h.MaxRetries` attempts
+					if retryCount <= h.MaxRetries {
 						//increment the retry count by 1
 						retryCount = retryCount + 1
 

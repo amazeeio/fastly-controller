@@ -110,10 +110,12 @@ type: Opaque
 
 ### Troubleshooting
 
-If the controllers encounter any issues, then the following 3 annotations will be added to the Ingress and/or Ingress Secret.
+If the controllers encounter any issues, then the following 2 annotations and a label will be added to the Ingress and/or Ingress Secret.
 
 ```
+# labels
 fastly.amazee.io/paused: 'true'
+# annotations
 fastly.amazee.io/paused-at: '2021-01-27 04:08:39'
 fastly.amazee.io/paused-reason: >-
   Unable to do x due to reason x.

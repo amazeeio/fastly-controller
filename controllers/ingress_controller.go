@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/fastly/go-fastly/fastly"
@@ -64,14 +65,24 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// 	LabelAppManaged: "fastly-controller",
 	// }
 	serviceID := ingress.ObjectMeta.Annotations["fastly.amazee.io/service-id"]
-	paused := "false"
-	if ingress.ObjectMeta.Labels["fastly.amazee.io/paused"] == "true" {
-		paused = "true"
+	paused := false
+	if pausedVal, ok := ingress.ObjectMeta.Annotations["fastly.amazee.io/paused"]; ok {
+		result, _ := strconv.ParseBool(pausedVal)
+		paused = result
 	}
 	// deleteexternal prevents the controller from deleting anything in fastly or in cluster
-	deleteExternal := "true"
-	if ingress.ObjectMeta.Annotations["fastly.amazee.io/delete-external-resources"] != "true" {
-		deleteExternal = "false"
+	deleteExternal := true
+	if deleteExternalVal, ok := ingress.ObjectMeta.Annotations["fastly.amazee.io/delete-external-resources"]; ok {
+		result, _ := strconv.ParseBool(deleteExternalVal)
+		deleteExternal = result
+	}
+	// check if `tls-acme` is configured on the ingress, this is then passed through to the ingress secret
+	// and is used by the secret to determine if it is to be uploaded into fastly or not
+	// ingress domains will still be added to the fastly service, tls-acme is just used for the certificates only
+	tlsAcme := false
+	if tlsAcmeVal, ok := ingress.ObjectMeta.Annotations["kubernetes.io/tls-acme"]; ok {
+		result, _ := strconv.ParseBool(tlsAcmeVal)
+		tlsAcme = result
 	}
 
 	// setup the fastly client
@@ -92,7 +103,13 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			Namespace: req.Namespace,
 		}, fastlyAPISecret); err != nil {
 			opLog.Info(fmt.Sprintf("Unable to find secret %s, pausing ingress, error was: %v", apiSecretName, err))
-			patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+			patchErr := r.patchPausedStatus(ctx,
+				ingress,
+				fastlyConfig.ServiceID,
+				fmt.Sprintf("%v", err),
+				true,
+				tlsAcme,
+			)
 			if patchErr != nil {
 				// if we can't patch the resource, just log it and return
 				// next time it tries to reconcile, it will just exit here without doing anything else
@@ -103,7 +120,13 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		if _, ok := fastlyAPISecret.StringData["api-token"]; ok {
 			fastlyConfig.Token = fastlyAPISecret.StringData["api-token"]
 			opLog.Info(fmt.Sprintf("Unable to find secret data for API_TOKEN, pausing ingress, error was: %v", err))
-			patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+			patchErr := r.patchPausedStatus(ctx,
+				ingress,
+				fastlyConfig.ServiceID,
+				fmt.Sprintf("%v", err),
+				true,
+				tlsAcme,
+			)
 			if patchErr != nil {
 				// if we can't patch the resource, just log it and return
 				// next time it tries to reconcile, it will just exit here without doing anything else
@@ -114,7 +137,13 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		if _, ok := fastlyAPISecret.StringData["platform-tls-configuration"]; ok {
 			fastlyConfig.PlatformTLSConfiguration = fastlyAPISecret.StringData["platform-tls-configuration"]
 			opLog.Info(fmt.Sprintf("Unable to find secret data for platform-tls-configuration, pausing ingress, error was: %v", err))
-			patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+			patchErr := r.patchPausedStatus(ctx,
+				ingress,
+				fastlyConfig.ServiceID,
+				fmt.Sprintf("%v", err),
+				true,
+				tlsAcme,
+			)
 			if patchErr != nil {
 				// if we can't patch the resource, just log it and return
 				// next time it tries to reconcile, it will just exit here without doing anything else
@@ -132,8 +161,8 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	// examine DeletionTimestamp to determine if object is under deletion
 	if ingress.ObjectMeta.DeletionTimestamp.IsZero() && ingress.ObjectMeta.Name != "" {
-		// check if the ingress is paused or not
-		if paused != "true" {
+		// check if the ingress is not paused
+		if !paused {
 			// check fastly for the list of domains currently in the service
 			opLog.Info(fmt.Sprintf("Checking fastly service %s for current domains", fastlyConfig.ServiceID))
 			latest, domains, err := r.getLatestServiceDomains(fastlyConfig)
@@ -161,7 +190,13 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 					// @TODO: log the error and drop out, maybe do something else to help prevent cloning it again and again?
 					// check for existing non-activated versions?
 					opLog.Info(fmt.Sprintf("Unable to clone service version in fastly, pausing ingress, error was: %v", err))
-					patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+					patchErr := r.patchPausedStatus(ctx,
+						ingress,
+						fastlyConfig.ServiceID,
+						fmt.Sprintf("%v", err),
+						true,
+						tlsAcme,
+					)
 					if patchErr != nil {
 						// if we can't patch the resource, just log it and return
 						// next time it tries to reconcile, it will just exit here without doing anything else
@@ -197,6 +232,7 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 						fastlyConfig.ServiceID,
 						fmt.Sprintf("%v", err),
 						true,
+						tlsAcme,
 					)
 					if patchErr != nil {
 						// if we can't patch the resource, just log it and return
@@ -236,6 +272,7 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 								fastlyConfig.ServiceID,
 								fmt.Sprintf("%v", err),
 								true,
+								tlsAcme,
 							)
 							if patchErr != nil {
 								// if we can't patch the resource, just log it and return
@@ -263,6 +300,7 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 						fastlyConfig.ServiceID,
 						fmt.Sprintf("%v", err),
 						true,
+						tlsAcme,
 					)
 					if patchErr != nil {
 						// if we can't patch the resource, just log it and return
@@ -281,49 +319,46 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			}
 			// patch the ingress secrets after adding the domains
 			// this also gives a bit of time for the ingress tls secrets to be created
-			for _, tls := range ingress.Spec.TLS {
-				opLog.Info(fmt.Sprintf("Patching secret %s with service ID and watch status", tls.SecretName))
-				err := r.patchSecret(ctx,
-					ingress,
-					fastlyConfig,
-					tls.SecretName,
-					false,
-				)
-				if err != nil {
-					opLog.Info(fmt.Sprintf("Unable to patch secret, pausing ingress, error was: %v", err))
-					patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
-					if patchErr != nil {
-						// if we can't patch the resource, just log it and return
-						// next time it tries to reconcile, it will just exit here without doing anything else
-						opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, giving up, error was: %v", patchErr))
+			if tlsAcme {
+				for _, tls := range ingress.Spec.TLS {
+					opLog.Info(fmt.Sprintf("Patching secret %s with service ID and watch status", tls.SecretName))
+					err := r.patchSecret(ctx,
+						ingress,
+						fastlyConfig,
+						tls.SecretName,
+						false,
+						tlsAcme,
+					)
+					if err != nil {
+						opLog.Info(fmt.Sprintf("Unable to patch secret, pausing ingress, error was: %v", err))
+						patchErr := r.patchPausedStatus(ctx, ingress, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true, tlsAcme)
+						if patchErr != nil {
+							// if we can't patch the resource, just log it and return
+							// next time it tries to reconcile, it will just exit here without doing anything else
+							opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, giving up, error was: %v", patchErr))
+						}
+						return ctrl.Result{}, nil
 					}
-					return ctrl.Result{}, nil
 				}
 			}
 			opLog.Info(fmt.Sprintf("Finished checking fastly service %s", fastlyConfig.ServiceID))
-			/*
-				// add finalizer so that we make sure to clean up in fastly
-				if !containsString(ingress.ObjectMeta.Finalizers, finalizerName) {
-					// ingress.ObjectMeta.Finalizers = append(ingress.ObjectMeta.Finalizers, finalizerName)
-					if err := r.patchFinalizer(ctx, ingress, []string{finalizerName}); err != nil {
-						return ctrl.Result{}, err
-					}
-				}
-			*/
 		} else {
 			// if the ingress has the paused status, then patch any secret with paused too so that we
 			// dont continue to act on any changes to it
-			for _, tls := range ingress.Spec.TLS {
-				opLog.Info(fmt.Sprintf("Patching secret %s with service ID and paused status", tls.SecretName))
-				err := r.patchSecret(ctx,
-					ingress,
-					fastlyConfig,
-					tls.SecretName,
-					true,
-				)
-				if err != nil {
-					opLog.Info(fmt.Sprintf("Unable to patch secret, giving up, error was: %v", err))
-					return ctrl.Result{}, nil
+			if tlsAcme {
+				for _, tls := range ingress.Spec.TLS {
+					opLog.Info(fmt.Sprintf("Patching secret %s with service ID and paused status %v", tls.SecretName, true))
+					err := r.patchSecret(ctx,
+						ingress,
+						fastlyConfig,
+						tls.SecretName,
+						true,
+						tlsAcme,
+					)
+					if err != nil {
+						opLog.Info(fmt.Sprintf("Unable to patch secret, giving up, error was: %v", err))
+						return ctrl.Result{}, nil
+					}
 				}
 			}
 		}
@@ -362,11 +397,11 @@ func (r *IngressReconciler) deleteExternalResources(ctx context.Context,
 	ingress networkv1beta1.Ingress,
 	fastlyConfig fastlyAPI,
 	opLog logr.Logger,
-	deleteExternal string,
-	paused string,
+	deleteExternal,
+	paused bool,
 ) error {
 	// if we have the external flag, then we should remove from fastly
-	if deleteExternal == "true" || paused != "true" {
+	if deleteExternal || !paused {
 		// Get the latest active version
 		latest, domains, err := r.getLatestServiceDomains(fastlyConfig)
 		if err != nil {
@@ -576,7 +611,7 @@ func (r *IngressReconciler) patchSecret(
 	ingress networkv1beta1.Ingress,
 	fastlyConfig fastlyAPI,
 	secret string,
-	paused bool,
+	paused, tlsAcme bool,
 ) error {
 	var ingressSecret corev1.Secret
 	if err := r.Get(ctx, types.NamespacedName{
@@ -590,12 +625,14 @@ func (r *IngressReconciler) patchSecret(
 	// if its different, change it to match the new one
 	// set the watch status to true so we can monitor for certificate changes in the ingresssecret_controller
 	annotations := map[string]interface{}{
-		"fastly.amazee.io/service-id": fastlyConfig.ServiceID,
-		"fastly.amazee.io/watch":      "true",
-		"fastly.amazee.io/paused":     nil,
+		"fastly.amazee.io/service-id":   fastlyConfig.ServiceID,
+		"fastly.amazee.io/watch":        "true",
+		"fastly.amazee.io/paused":       nil,
+		"fastly.amazee.io/ingress-name": ingress.ObjectMeta.Name,
 	}
 	labels := map[string]interface{}{
-		"fastly.amazee.io/paused": fmt.Sprintf("%v", paused),
+		"fastly.amazee.io/paused":   fmt.Sprintf("%v", paused),
+		"fastly.amazee.io/tls-acme": fmt.Sprintf("%v", tlsAcme),
 	}
 	// add the custom api secret to this ingress secret if one is provided by the ingress
 	// this is so that actions on the ingress secret can be taken against the fastly api if not using the default
@@ -629,18 +666,32 @@ func (r *IngressReconciler) patchPausedStatus(
 	ingress networkv1beta1.Ingress,
 	serviceID string,
 	reason string,
-	paused bool,
+	paused, tlsAcme bool,
 ) error {
+	// set the paused annotations to nil if this is unpaused
+	annotations := map[string]interface{}{
+		"fastly.amazee.io/paused":             nil,
+		"fastly.amazee.io/paused-reason":      nil,
+		"fastly.amazee.io/paused-at":          nil,
+		"fastly.amazee.io/paused-retry-count": nil,
+		"fastly.amazee.io/tls-acme":           nil,
+	}
+	if paused {
+		// if paused, set the annotations
+		annotations = map[string]interface{}{
+			"fastly.amazee.io/paused":        nil,
+			"fastly.amazee.io/paused-reason": reason,
+			"fastly.amazee.io/paused-at":     time.Now().UTC().Format("2006-01-02 15:04:05"),
+			"fastly.amazee.io/tls-acme":      fmt.Sprintf("%v", tlsAcme),
+		}
+	}
+	labels := map[string]interface{}{
+		"fastly.amazee.io/paused": fmt.Sprintf("%v", paused),
+	}
 	mergePatch, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
-			"annotations": map[string]interface{}{
-				"fastly.amazee.io/paused":        nil,
-				"fastly.amazee.io/paused-reason": reason,
-				"fastly.amazee.io/paused-at":     time.Now().UTC().Format("2006-01-02 15:04:05"),
-			},
-			"labels": map[string]interface{}{
-				"fastly.amazee.io/paused": fmt.Sprintf("%v", paused),
-			},
+			"annotations": annotations,
+			"labels":      labels,
 		},
 	})
 	if err != nil {
