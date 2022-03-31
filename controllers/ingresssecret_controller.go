@@ -94,7 +94,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 			Namespace: req.Namespace,
 		}, fastlyAPISecret); err != nil {
 			opLog.Info(fmt.Sprintf("Unable to find secret %s, pausing ingress, error was: %v", apiSecretName, err))
-			patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+			patchErr := r.patchPausedStatus(ctx, ingressSecret, nil, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
 			if patchErr != nil {
 				// if we can't patch the resource, just log it and return
 				// next time it tries to reconcile, it will just exit here without doing anything else
@@ -105,7 +105,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 		if _, ok := fastlyAPISecret.StringData["api-token"]; ok {
 			fastlyConfig.Token = fastlyAPISecret.StringData["api-token"]
 			opLog.Info(fmt.Sprintf("Unable to find secret data for api-token, pausing ingress, error was: %v", err))
-			patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+			patchErr := r.patchPausedStatus(ctx, ingressSecret, nil, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
 			if patchErr != nil {
 				// if we can't patch the resource, just log it and return
 				// next time it tries to reconcile, it will just exit here without doing anything else
@@ -116,7 +116,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 		if _, ok := fastlyAPISecret.StringData["platform-tls-configuration"]; ok {
 			fastlyConfig.PlatformTLSConfiguration = fastlyAPISecret.StringData["platform-tls-configuration"]
 			opLog.Info(fmt.Sprintf("Unable to find secret data for platform-tls-configuration, pausing ingress, error was: %v", err))
-			patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+			patchErr := r.patchPausedStatus(ctx, ingressSecret, nil, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
 			if patchErr != nil {
 				// if we can't patch the resource, just log it and return
 				// next time it tries to reconcile, it will just exit here without doing anything else
@@ -134,6 +134,15 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 
 	// examine DeletionTimestamp to determine if object is under deletion
 	if ingressSecret.ObjectMeta.DeletionTimestamp.IsZero() && ingressSecret.ObjectMeta.Name != "" {
+
+		// when a patch operation is run, it triggers a reconciliation which causes the bulk certificate to be added/created twice
+		// in fastly, first run through will create the private key in fastly and patch the secret, the code continues to then do the bulk certificate
+		// but before that can be done the reconciler runs again after the first patch operation and does a bulk certificate check too
+		// neither runs are aware of the other at this stage
+		// now all the final annotation updates should happen at the end after everything has been created
+		updateAnnotations := false
+		annotations := make(map[string]string)
+
 		// if the secret is not paused, and tls-acme is enabled on the ingress
 		if !paused && tlsAcme {
 			// check if the key is populated, if the size is 0 it means there is no key yet
@@ -151,7 +160,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 				publicKeySha1, err := decodePrivateKeyToPublicKeySHA1(ingressSecret.Data["tls.key"])
 				if err != nil {
 					opLog.Info(fmt.Sprintf("Pausing, error was: %v", err))
-					patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+					patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
 					if patchErr != nil {
 						// if we can't patch the resource, just log it and return
 						// next time it tries to reconcile, it will just exit here without doing anything else
@@ -169,7 +178,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					privateKeyID, err := r.addPrivateKey(ctx, ingressSecret, publicKeySha1)
 					if err != nil {
 						opLog.Info(fmt.Sprintf("Privatekey failed to load into Fastly, pausing, error was: %v", err))
-						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
 						if patchErr != nil {
 							// if we can't patch the resource, just log it and return
 							// next time it tries to reconcile, it will just exit here without doing anything else
@@ -177,14 +186,14 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 						}
 						return ctrl.Result{}, nil
 					}
+
+					updateAnnotations = true
 					// patch the ingress with what we discover from the api or from the one we created
 					// add the original annotations to `old` annotations for clean up later
-					r.patchSecretAnnotations(ctx, ingressSecret, map[string]string{
-						"fastly.amazee.io/private-key-id":      privateKeyID,
-						"fastly.amazee.io/public-key-sha1":     publicKeySha1,
-						"fastly.amazee.io/old-public-key-sha1": publicKeySha1Annotation,
-						"fastly.amazee.io/old-private-key-id":  privateKeyIDAnnotation,
-					})
+					annotations["fastly.amazee.io/private-key-id"] = privateKeyID
+					annotations["fastly.amazee.io/public-key-sha1"] = publicKeySha1
+					annotations["fastly.amazee.io/old-public-key-sha1"] = publicKeySha1Annotation
+					annotations["fastly.amazee.io/old-private-key-id"] = privateKeyIDAnnotation
 					privateKeyIDAnnotation = privateKeyID
 					publicKeySha1Annotation = publicKeySha1
 					oldPublicKeySha1Annotation = publicKeySha1Annotation
@@ -198,7 +207,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					privateKeyID, err := r.addPrivateKey(ctx, ingressSecret, publicKeySha1)
 					if err != nil {
 						opLog.Info(fmt.Sprintf("Privatekey failed to load into Fastly, pausing, error was: %v", err))
-						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, fmt.Sprintf("%v", err), true)
 						if patchErr != nil {
 							// if we can't patch the resource, just log it and return
 							// next time it tries to reconcile, it will just exit here without doing anything else
@@ -206,11 +215,11 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 						}
 						return ctrl.Result{}, nil
 					}
+
+					updateAnnotations = true
 					// patch the ingress with what we discover from the api or from the one we created
-					r.patchSecretAnnotations(ctx, ingressSecret, map[string]string{
-						"fastly.amazee.io/private-key-id":  privateKeyID,
-						"fastly.amazee.io/public-key-sha1": publicKeySha1,
-					})
+					annotations["fastly.amazee.io/private-key-id"] = privateKeyID
+					annotations["fastly.amazee.io/public-key-sha1"] = publicKeySha1
 					privateKeyIDAnnotation = privateKeyID
 					publicKeySha1Annotation = publicKeySha1
 				}
@@ -234,7 +243,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					if err != nil {
 						errMsg := fmt.Sprintf("Unable to get certificate from chain, error was: %v", err)
 						opLog.Info(errMsg)
-						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, errMsg, true)
 						if patchErr != nil {
 							// if we can't patch the resource, just log it and return
 							// next time it tries to reconcile, it will just exit here without doing anything else
@@ -248,7 +257,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 						if err != nil {
 							errMsg := fmt.Sprintf("Unable to parse certificate, error was: %v", err)
 							opLog.Info(errMsg)
-							patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+							patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, errMsg, true)
 							if patchErr != nil {
 								// if we can't patch the resource, just log it and return
 								// next time it tries to reconcile, it will just exit here without doing anything else
@@ -262,7 +271,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 						if err != nil {
 							errMsg := fmt.Sprintf("Unable to get certificate information from Fastly, error was: %v", err)
 							opLog.Info(errMsg)
-							patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+							patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, errMsg, true)
 							if patchErr != nil {
 								// if we can't patch the resource, just log it and return
 								// next time it tries to reconcile, it will just exit here without doing anything else
@@ -279,7 +288,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 							if err != nil {
 								errMsg := fmt.Sprintf("Certificate failed to update in Fastly, error was: %v", err)
 								opLog.Info(errMsg)
-								patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+								patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, errMsg, true)
 								if patchErr != nil {
 									// if we can't patch the resource, just log it and return
 									// next time it tries to reconcile, it will just exit here without doing anything else
@@ -299,7 +308,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					if err != nil {
 						errMsg := fmt.Sprintf("Certificate failed to load into Fastly, error was: %v", err)
 						opLog.Info(errMsg)
-						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, errMsg, true)
 						if patchErr != nil {
 							// if we can't patch the resource, just log it and return
 							// next time it tries to reconcile, it will just exit here without doing anything else
@@ -307,10 +316,9 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 						}
 						return ctrl.Result{}, nil
 					}
+					updateAnnotations = true
 					// patch the secret with the bulk-certificate annotation
-					r.patchSecretAnnotations(ctx, ingressSecret, map[string]string{
-						"fastly.amazee.io/bulk-certificate-id": certificateID,
-					})
+					annotations["fastly.amazee.io/bulk-certificate-id"] = certificateID
 					bulkCertificateIDAnnotation = certificateID
 				} else if bulkCertificateIDAnnotation != "" {
 					// check the certificate expiration dates to see if the secret is newer than the one in fastly
@@ -319,7 +327,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					if err != nil {
 						errMsg := fmt.Sprintf("Unable to get certificate from chain, error was: %v", err)
 						opLog.Info(errMsg)
-						patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+						patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, errMsg, true)
 						if patchErr != nil {
 							// if we can't patch the resource, just log it and return
 							// next time it tries to reconcile, it will just exit here without doing anything else
@@ -333,7 +341,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 						if err != nil {
 							errMsg := fmt.Sprintf("Unable to parse certificate, error was: %v", err)
 							opLog.Info(errMsg)
-							patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+							patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, errMsg, true)
 							if patchErr != nil {
 								// if we can't patch the resource, just log it and return
 								// next time it tries to reconcile, it will just exit here without doing anything else
@@ -347,7 +355,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 						if err != nil {
 							errMsg := fmt.Sprintf("Unable to get certificate information from Fastly, error was: %v", err)
 							opLog.Info(errMsg)
-							patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+							patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, errMsg, true)
 							if patchErr != nil {
 								// if we can't patch the resource, just log it and return
 								// next time it tries to reconcile, it will just exit here without doing anything else
@@ -364,7 +372,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 							if err != nil {
 								errMsg := fmt.Sprintf("Certificate failed to update in Fastly, error was: %v", err)
 								opLog.Info(errMsg)
-								patchErr := r.patchPausedStatus(ctx, ingressSecret, fastlyConfig.ServiceID, errMsg, true)
+								patchErr := r.patchPausedStatus(ctx, ingressSecret, annotations, fastlyConfig.ServiceID, errMsg, true)
 								if patchErr != nil {
 									// if we can't patch the resource, just log it and return
 									// next time it tries to reconcile, it will just exit here without doing anything else
@@ -380,7 +388,6 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 			} else {
 				// don't do anything, reconciler will run when the certificate is ready
 				opLog.Info(fmt.Sprintf("Certificate has not been populated yet"))
-				return ctrl.Result{}, nil
 			}
 
 			// if we get this far and have old things to delete, we should do that here.
@@ -406,9 +413,9 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					}
 				*/
 				// patch the secret to remove the old items
-				r.patchSecretAnnotations(ctx, ingressSecret, map[string]string{
-					"fastly.amazee.io/old-public-key-sha1": "",
-					"fastly.amazee.io/old-private-key-id":  "",
+				r.patchSecretAnnotations(ctx, ingressSecret, map[string]interface{
+					"fastly.amazee.io/old-public-key-sha1": nil,
+					"fastly.amazee.io/old-private-key-id":  nil,
 				})
 			}
 			// if the secret has the ingress name attached, and the certificates have been uploaded
@@ -431,10 +438,13 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 							// next time it tries to reconcile, it will just exit here without doing anything else
 							opLog.Info(fmt.Sprintf("Unable to patch the ingress with paused status, error was: %v", patchErr))
 						}
-						return ctrl.Result{}, nil
 					}
 				}
 			}
+		}
+		// if any changes required, patch the secret
+		if updateAnnotations {
+			r.patchSecretAnnotations(ctx, ingressSecret, annotations)
 		}
 	} else {
 		// The object is being deleted
@@ -461,17 +471,23 @@ func (r *IngressSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *IngressSecretReconciler) patchPausedStatus(
 	ctx context.Context,
 	ingressSecret corev1.Secret,
+	additionalAnnotations map[string]string,
 	serviceID string,
 	reason string,
 	paused bool,
 ) error {
+	annotations := map[string]interface{}{
+		"fastly.amazee.io/paused":        nil,
+		"fastly.amazee.io/paused-reason": reason,
+		"fastly.amazee.io/paused-at":     time.Now().UTC().Format("2006-01-02 15:04:05"),
+	}
+	// add any additional annotations to the annotations
+	for k, v := range additionalAnnotations {
+		annotations[k] = v
+	}
 	mergePatch, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
-			"annotations": map[string]interface{}{
-				"fastly.amazee.io/paused":        nil,
-				"fastly.amazee.io/paused-reason": reason,
-				"fastly.amazee.io/paused-at":     time.Now().UTC().Format("2006-01-02 15:04:05"),
-			},
+			"annotations": annotations,
 			"labels": map[string]interface{}{
 				"fastly.amazee.io/paused": fmt.Sprintf("%v", paused),
 			},
