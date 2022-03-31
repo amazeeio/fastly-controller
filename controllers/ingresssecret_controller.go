@@ -413,10 +413,9 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					}
 				*/
 				// patch the secret to remove the old items
-				r.patchSecretAnnotations(ctx, ingressSecret, map[string]interface{
-					"fastly.amazee.io/old-public-key-sha1": nil,
-					"fastly.amazee.io/old-private-key-id":  nil,
-				})
+				updateAnnotations = true
+				annotations["fastly.amazee.io/private-key-id"] = ""
+				annotations["fastly.amazee.io/public-key-sha1"] = ""
 			}
 			// if the secret has the ingress name attached, and the certificates have been uploaded
 			// patch the associated ingress to unpause it
