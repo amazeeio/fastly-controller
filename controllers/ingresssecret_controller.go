@@ -51,7 +51,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 	// pausing prevents the controller from acting on this object
 	// it prevents anything happening in fastly
 	paused := false
-	if pausedVal, ok := ingressSecret.ObjectMeta.Annotations["fastly.amazee.io/paused"]; ok {
+	if pausedVal, ok := ingressSecret.ObjectMeta.Labels["fastly.amazee.io/paused"]; ok {
 		result, _ := strconv.ParseBool(pausedVal)
 		paused = result
 	}
