@@ -440,10 +440,10 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 					}
 				}
 			}
-		}
-		// if any changes required, patch the secret
-		if updateAnnotations {
-			r.patchSecretAnnotations(ctx, ingressSecret, annotations)
+			// if any changes required, patch the secret
+			if updateAnnotations {
+				r.patchSecretAnnotations(ctx, ingressSecret, annotations)
+			}
 		}
 	} else {
 		// The object is being deleted
