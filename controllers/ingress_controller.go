@@ -66,7 +66,7 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	// }
 	serviceID := ingress.ObjectMeta.Annotations["fastly.amazee.io/service-id"]
 	paused := false
-	if pausedVal, ok := ingress.ObjectMeta.Annotations["fastly.amazee.io/paused"]; ok {
+	if pausedVal, ok := ingress.ObjectMeta.Labels["fastly.amazee.io/paused"]; ok {
 		result, _ := strconv.ParseBool(pausedVal)
 		paused = result
 	}
