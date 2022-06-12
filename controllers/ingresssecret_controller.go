@@ -281,8 +281,8 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 						}
 						if secretCert.NotAfter.After(*bulkCertificate.NotAfter) {
 							opLog.Info(fmt.Sprintf("Certificate has changed, old expiry is %v, new expiry is %v. Updating certificate in Fastly",
-								secretCert.NotAfter,
 								bulkCertificate.NotAfter,
+								secretCert.NotAfter,
 							))
 							err = r.updateCertificate(ctx, ingressSecret, bulkCertificateIDAnnotation)
 							if err != nil {
