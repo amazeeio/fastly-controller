@@ -11,7 +11,7 @@ import (
 
 	"github.com/fastly/go-fastly/fastly"
 
-	networkv1beta1 "k8s.io/api/networking/v1beta1"
+	networkv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
@@ -57,7 +57,7 @@ func containsDomain(domains []*fastly.Domain, domainName string) bool {
 }
 
 // check if ingress contains a host
-func containsIngress(ingress *networkv1beta1.Ingress, host string) bool {
+func containsIngress(ingress *networkv1.Ingress, host string) bool {
 	for _, ingressRule := range ingress.Spec.Rules {
 		if ingressRule.Host == host {
 			return true
