@@ -101,6 +101,7 @@ func main() {
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
 		LeaderElection:     enableLeaderElection,
+		LeaderElectionID:   "lahc7eig.amazee.io",
 		Port:               9443,
 	})
 	if err != nil {
