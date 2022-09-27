@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	networkv1beta1 "k8s.io/api/networking/v1beta1"
+	networkv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,7 +46,7 @@ func (h *Cleanup) CheckPausedCertStatus() {
 		return
 	}
 	for _, ns := range namespaces.Items {
-		ingresses := &networkv1beta1.IngressList{}
+		ingresses := &networkv1.IngressList{}
 		listOption := (&client.ListOptions{}).ApplyOptions([]client.ListOption{
 			client.InNamespace(ns.ObjectMeta.Name),
 			client.MatchingLabels(map[string]string{
@@ -96,7 +96,7 @@ func (h *Cleanup) CheckPausedCertStatus() {
 							continue
 						}
 						// patch the ingress so that the controller will attemp to run through its process
-						if err := h.Client.Patch(context.Background(), &ingress, client.ConstantPatch(types.MergePatchType, mergePatch)); err != nil {
+						if err := h.Client.Patch(context.Background(), &ingress, client.RawPatch(types.MergePatchType, mergePatch)); err != nil {
 							opLog.Info(fmt.Sprintf("Unable to patch ingress %s, error was: %v", ingress.ObjectMeta.Name, err))
 							continue
 						}

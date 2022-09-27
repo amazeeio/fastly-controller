@@ -25,7 +25,7 @@ import (
 	"github.com/fastly/go-fastly/fastly"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	networkv1beta1 "k8s.io/api/networking/v1beta1"
+	networkv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -50,14 +50,13 @@ type IngressReconciler struct {
 // +kubebuilder:rbac:groups=*,resources=namespaces,verbs=get;list;watch
 
 // Reconcile .
-func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx := context.Background()
+func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	opLog := r.Log.WithValues("ingress", req.NamespacedName)
 
 	finalizerName := "finalizer.fastly.amazee.io/v1"
 
 	// load the resource
-	var ingress networkv1beta1.Ingress
+	var ingress networkv1.Ingress
 	if err := r.Get(ctx, req.NamespacedName, &ingress); err != nil {
 		return ctrl.Result{}, ignoreNotFound(err)
 	}
@@ -387,14 +386,14 @@ func (r *IngressReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 // SetupWithManager sets up the controller with the given manager and watch filters.
 func (r *IngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&networkv1beta1.Ingress{}).
+		For(&networkv1.Ingress{}).
 		WithEventFilter(IngressPredicates{}).
 		Complete(r)
 }
 
 // delete any external resources
 func (r *IngressReconciler) deleteExternalResources(ctx context.Context,
-	ingress networkv1beta1.Ingress,
+	ingress networkv1.Ingress,
 	fastlyConfig fastlyAPI,
 	opLog logr.Logger,
 	deleteExternal,
@@ -558,7 +557,7 @@ func (r *IngressReconciler) getLatestServiceDomains(fastlyConfig fastlyAPI) (*fa
 }
 
 func (r *IngressReconciler) validateActivateService(
-	ingress networkv1beta1.Ingress,
+	ingress networkv1.Ingress,
 	fastlyConfig fastlyAPI,
 	version int,
 ) (*fastly.Version, error) {
@@ -608,7 +607,7 @@ func (r *IngressReconciler) validateActivateService(
 // this is so that the ingressecret_controller can watch for new certificates being added or updated by lets encrypt/other
 func (r *IngressReconciler) patchSecret(
 	ctx context.Context,
-	ingress networkv1beta1.Ingress,
+	ingress networkv1.Ingress,
 	fastlyConfig fastlyAPI,
 	secret string,
 	paused, tlsAcme bool,
@@ -649,7 +648,7 @@ func (r *IngressReconciler) patchSecret(
 	if err != nil {
 		return fmt.Errorf("Unable to create mergepatch for %s, error was: %v", ingress.ObjectMeta.Name, err)
 	}
-	if err := r.Patch(ctx, &ingressSecret, client.ConstantPatch(types.MergePatchType, mergePatch)); err != nil {
+	if err := r.Patch(ctx, &ingressSecret, client.RawPatch(types.MergePatchType, mergePatch)); err != nil {
 		return fmt.Errorf("Unable to patch secret %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
 	}
 	r.Log.WithValues("ingress", types.NamespacedName{
@@ -663,7 +662,7 @@ func (r *IngressReconciler) patchSecret(
 // add the paused-reason to the annotations so user can see why it was paused and try to fix any issues it before unpausing
 func (r *IngressReconciler) patchPausedStatus(
 	ctx context.Context,
-	ingress networkv1beta1.Ingress,
+	ingress networkv1.Ingress,
 	serviceID string,
 	reason string,
 	paused, tlsAcme bool,
@@ -701,7 +700,7 @@ func (r *IngressReconciler) patchPausedStatus(
 		}).Info(fmt.Sprintf("Unable to create mergepatch for %s, error was: %v", ingress.ObjectMeta.Name, err))
 		return nil
 	}
-	if err := r.Patch(ctx, &ingress, client.ConstantPatch(types.MergePatchType, mergePatch)); err != nil {
+	if err := r.Patch(ctx, &ingress, client.RawPatch(types.MergePatchType, mergePatch)); err != nil {
 		r.Log.WithValues("ingress", types.NamespacedName{
 			Name:      ingress.ObjectMeta.Name,
 			Namespace: ingress.ObjectMeta.Namespace,
@@ -728,7 +727,7 @@ func (r *IngressReconciler) patchPausedStatus(
 			}).Info(fmt.Sprintf("Unable to find secret of %s to add to service %s", tlsSecret.SecretName, serviceID))
 			return nil
 		}
-		if err := r.Patch(ctx, &ingressSecret, client.ConstantPatch(types.MergePatchType, mergePatch)); err != nil {
+		if err := r.Patch(ctx, &ingressSecret, client.RawPatch(types.MergePatchType, mergePatch)); err != nil {
 			// if we can't patch the secret, then, then just log it and return
 			// no point trying to keep patching it if we can't do it the first time
 			r.Log.WithValues("ingress", types.NamespacedName{

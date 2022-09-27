@@ -13,7 +13,7 @@ import (
 	"github.com/fastly/go-fastly/fastly"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	networkv1beta1 "k8s.io/api/networking/v1beta1"
+	networkv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,8 +35,7 @@ type IngressSecretReconciler struct {
 // +kubebuilder:rbac:groups=*,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile .
-func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx := context.Background()
+func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	opLog := r.Log.WithValues("ingress-secret", req.NamespacedName)
 	// load the resource
 	var ingressSecret corev1.Secret
@@ -420,7 +419,7 @@ func (r *IngressSecretReconciler) Reconcile(req ctrl.Request) (ctrl.Result, erro
 			// if the secret has the ingress name attached, and the certificates have been uploaded
 			// patch the associated ingress to unpause it
 			if ingressName != "" {
-				var ingress networkv1beta1.Ingress
+				var ingress networkv1.Ingress
 				if err := r.Get(ctx, types.NamespacedName{
 					Name:      ingressName,
 					Namespace: ingressSecret.ObjectMeta.Namespace,
@@ -499,7 +498,7 @@ func (r *IngressSecretReconciler) patchPausedStatus(
 		}).Info(fmt.Sprintf("Unable to create mergepatch for %s, error was: %v", ingressSecret.ObjectMeta.Name, err))
 		return nil
 	}
-	if err := r.Patch(ctx, &ingressSecret, client.ConstantPatch(types.MergePatchType, mergePatch)); err != nil {
+	if err := r.Patch(ctx, &ingressSecret, client.RawPatch(types.MergePatchType, mergePatch)); err != nil {
 		r.Log.WithValues("ingressSecret", types.NamespacedName{
 			Name:      ingressSecret.ObjectMeta.Name,
 			Namespace: ingressSecret.ObjectMeta.Namespace,
@@ -517,7 +516,7 @@ func (r *IngressSecretReconciler) patchPausedStatus(
 // add the paused-reason to the annotations so user can see why it was paused and try to fix any issues it before unpausing
 func (r *IngressSecretReconciler) patchIngressPausedStatus(
 	ctx context.Context,
-	ingress networkv1beta1.Ingress,
+	ingress networkv1.Ingress,
 	serviceID string,
 	reason string,
 	paused bool,
@@ -551,7 +550,7 @@ func (r *IngressSecretReconciler) patchIngressPausedStatus(
 		}).Info(fmt.Sprintf("Unable to create mergepatch for %s, error was: %v", ingress.ObjectMeta.Name, err))
 		return nil
 	}
-	if err := r.Patch(ctx, &ingress, client.ConstantPatch(types.MergePatchType, mergePatch)); err != nil {
+	if err := r.Patch(ctx, &ingress, client.RawPatch(types.MergePatchType, mergePatch)); err != nil {
 		r.Log.WithValues("ingress", types.NamespacedName{
 			Name:      ingress.ObjectMeta.Name,
 			Namespace: ingress.ObjectMeta.Namespace,
@@ -721,7 +720,7 @@ func (r *IngressSecretReconciler) patchSecretAnnotations(
 	if err != nil {
 		return fmt.Errorf("Unable to create mergepatch for %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
 	}
-	if err := r.Patch(ctx, &ingressSecret, client.ConstantPatch(types.StrategicMergePatchType, mergePatch)); err != nil {
+	if err := r.Patch(ctx, &ingressSecret, client.RawPatch(types.StrategicMergePatchType, mergePatch)); err != nil {
 		return fmt.Errorf("Unable to patch secret %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
 	}
 	r.Log.WithValues("ingress", types.NamespacedName{
@@ -741,7 +740,7 @@ func (r *IngressSecretReconciler) patchFinalizer(ctx context.Context, ingressSec
 	if err != nil {
 		return fmt.Errorf("Unable to create mergepatch for %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
 	}
-	if err := r.Patch(ctx, &ingressSecret, client.ConstantPatch(types.MergePatchType, mergePatch)); err != nil {
+	if err := r.Patch(ctx, &ingressSecret, client.RawPatch(types.MergePatchType, mergePatch)); err != nil {
 		return fmt.Errorf("Unable to patch secret %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
 	}
 	r.Log.WithValues("ingress", types.NamespacedName{

@@ -69,6 +69,10 @@ func main() {
 		"The cron definition for checking paused ingresses.")
 	flag.IntVar(&maxRetryCount, "max-retry-count", 5,
 		"The number of times to retry checking paused ingresses.")
+	opts := zap.Options{
+		Development: true,
+	}
+	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
 	// set a global API token for all requests, otherwise annotation will be used
@@ -91,9 +95,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctrl.SetLogger(zap.New(func(o *zap.Options) {
-		o.Development = true
-	}))
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
