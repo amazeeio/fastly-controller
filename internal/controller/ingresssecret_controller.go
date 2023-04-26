@@ -202,7 +202,7 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				// then we should add the privatekey and then update the annotations with the values
 				if privateKeyIDAnnotation == "" || publicKeySha1Annotation == "" {
 					// load the privatekey into fastly
-					opLog.Info("sPrivatekey info not found, check or load it into Fastly")
+					opLog.Info("Privatekey info not found, check or load it into Fastly")
 					privateKeyID, err := r.addPrivateKey(ctx, ingressSecret, publicKeySha1)
 					if err != nil {
 						opLog.Info(fmt.Sprintf("Privatekey failed to load into Fastly, pausing, error was: %v", err))
