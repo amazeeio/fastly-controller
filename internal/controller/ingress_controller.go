@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package controller
 
 import (
 	"context"
@@ -370,7 +370,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			deleteExternal,
 			paused,
 		); err != nil {
-			return ctrl.Result{}, fmt.Errorf("Failed to delete external resources, error was: %v", err)
+			return ctrl.Result{}, fmt.Errorf("failed to delete external resources, error was: %v", err)
 		}
 		// remove finalizer if one exists
 		if containsString(ingress.ObjectMeta.Finalizers, finalizerName) {
