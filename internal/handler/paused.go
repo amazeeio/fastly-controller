@@ -14,10 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type cleanup interface {
-	CheckPausedCertStatus()
-}
-
 // Cleanup is used for cleaning up old pods or resources.
 type Cleanup struct {
 	Client      client.Client
@@ -39,10 +35,10 @@ func NewCleanup(client client.Client, maxRetries int, enableDebug bool) *Cleanup
 // after 5 attempts it will give up
 func (h *Cleanup) CheckPausedCertStatus() {
 	opLog := ctrl.Log.WithName("handlers").WithName("PausedCertStatusCheck")
-	opLog.Info(fmt.Sprintf("Running paused status check job"))
+	opLog.Info("Running paused status check job")
 	namespaces := &corev1.NamespaceList{}
 	if err := h.Client.List(context.Background(), namespaces); err != nil {
-		opLog.Error(err, fmt.Sprintf("Unable to list namespaces, there may be none or something went wrong"))
+		opLog.Error(err, "Unable to list namespaces, there may be none or something went wrong")
 		return
 	}
 	for _, ns := range namespaces.Items {
@@ -54,7 +50,7 @@ func (h *Cleanup) CheckPausedCertStatus() {
 			}),
 		})
 		if err := h.Client.List(context.Background(), ingresses, listOption); err != nil {
-			opLog.Error(err, fmt.Sprintf("Unable to list Ingress resource in namespace, there may be none or something went wrong"))
+			opLog.Error(err, "Unable to list Ingress resource in namespace, there may be none or something went wrong")
 			return
 		}
 		if len(ingresses.Items) > 0 {
@@ -106,5 +102,4 @@ func (h *Cleanup) CheckPausedCertStatus() {
 			}
 		}
 	}
-	return
 }
