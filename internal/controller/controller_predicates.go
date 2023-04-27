@@ -1,4 +1,4 @@
-package controllers
+package controller
 
 // contains all the event watch conditions for secret and ingresses
 

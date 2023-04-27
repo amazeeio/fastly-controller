@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package controller
 
 import (
 	"context"
@@ -58,7 +58,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// load the resource
 	var ingress networkv1.Ingress
 	if err := r.Get(ctx, req.NamespacedName, &ingress); err != nil {
-		return ctrl.Result{}, ignoreNotFound(err)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	// labels := map[string]string{
 	// 	LabelAppManaged: "fastly-controller",
@@ -242,6 +242,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				}
 				for _, rule := range ingress.Spec.Rules {
 					// check if the domain exists first
+					// TODO(marco): check why the value of domain is never used... :)
 					domain, err := r.FastlyClient.GetDomain(
 						&fastly.GetDomainInput{
 							Service: fastlyConfig.ServiceID,
@@ -370,7 +371,7 @@ func (r *IngressReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			deleteExternal,
 			paused,
 		); err != nil {
-			return ctrl.Result{}, fmt.Errorf("Failed to delete external resources, error was: %v", err)
+			return ctrl.Result{}, fmt.Errorf("failed to delete external resources, error was: %v", err)
 		}
 		// remove finalizer if one exists
 		if containsString(ingress.ObjectMeta.Finalizers, finalizerName) {
@@ -455,7 +456,7 @@ func (r *IngressReconciler) deleteExternalResources(ctx context.Context,
 				r.ClusterName,
 				ingress.ObjectMeta.Namespace,
 			)
-			if clonedVersion.Comment != "" && latest.Active == false {
+			if clonedVersion.Comment != "" && !latest.Active {
 				// if there is already a comment on the cloned version, then add our comment to the end
 				comment = fmt.Sprintf(
 					"%s\nDomains in ingress %s removed by fastly-controller: cluster:%s:namespace:%s",
@@ -465,6 +466,7 @@ func (r *IngressReconciler) deleteExternalResources(ctx context.Context,
 					ingress.ObjectMeta.Namespace,
 				)
 			}
+			// TODO(marco): check why the value of version is never used...
 			version, err := r.FastlyClient.UpdateVersion(
 				&fastly.UpdateVersionInput{
 					Service: fastlyConfig.ServiceID,
@@ -514,10 +516,10 @@ func (r *IngressReconciler) deleteExternalResources(ctx context.Context,
 				Name:      tlsSecret.SecretName,
 				Namespace: ingress.ObjectMeta.Namespace,
 			}, &ingressSecret); err != nil {
-			return fmt.Errorf("Unable to get secret %s, error was: %v", tlsSecret.SecretName, err)
+			return fmt.Errorf("unable to get secret %s, error was: %v", tlsSecret.SecretName, err)
 		}
 		if err := r.Delete(ctx, &ingressSecret); err != nil {
-			return fmt.Errorf("Unable to delete secret %s, error was: %v", tlsSecret.SecretName, err)
+			return fmt.Errorf("unable to delete secret %s, error was: %v", tlsSecret.SecretName, err)
 		}
 		opLog.Info(fmt.Sprintf("Deleted tls secret %s", tlsSecret.SecretName))
 	}
@@ -581,7 +583,7 @@ func (r *IngressReconciler) validateActivateService(
 		}
 		// if we have domains, then the service is invalid for some other reason
 		if len(domains) > 0 {
-			return nil, fmt.Errorf("Not valid version %d for service %s", version, fastlyConfig.ServiceID)
+			return nil, fmt.Errorf("not valid version %d for service %s", version, fastlyConfig.ServiceID)
 		}
 		// it could still be invalid, but no domains left do we care? send back the current active version number
 		r.Log.WithValues("ingress",
@@ -617,7 +619,7 @@ func (r *IngressReconciler) patchSecret(
 		Name:      secret,
 		Namespace: ingress.ObjectMeta.Namespace,
 	}, &ingressSecret); err != nil {
-		return fmt.Errorf("Unable to find secret of %s to add to service %s", secret, fastlyConfig.ServiceID)
+		return fmt.Errorf("unable to find secret of %s to add to service %s", secret, fastlyConfig.ServiceID)
 	}
 	// check for the service-id
 	// if we dont have it, add it.
@@ -646,10 +648,10 @@ func (r *IngressReconciler) patchSecret(
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("Unable to create mergepatch for %s, error was: %v", ingress.ObjectMeta.Name, err)
+		return fmt.Errorf("unable to create mergepatch for %s, error was: %v", ingress.ObjectMeta.Name, err)
 	}
 	if err := r.Patch(ctx, &ingressSecret, client.RawPatch(types.MergePatchType, mergePatch)); err != nil {
-		return fmt.Errorf("Unable to patch secret %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
+		return fmt.Errorf("unable to patch secret %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
 	}
 	r.Log.WithValues("ingress", types.NamespacedName{
 		Name:      ingressSecret.ObjectMeta.Name,

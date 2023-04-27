@@ -1,4 +1,4 @@
-package controllers
+package controller
 
 import (
 	"crypto/rsa"
@@ -7,12 +7,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"math/rand"
 
 	"github.com/fastly/go-fastly/fastly"
-
-	networkv1 "k8s.io/api/networking/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 const (
@@ -23,21 +19,6 @@ const (
 	// LabelAppManaged for discovery.
 	LabelAppManaged = "fastly.amazee.io/managed-by"
 )
-
-var alphaNumeric = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890")
-var dnsCompliantAlphaNumeric = []rune("abcdefghijklmnopqrstuvwxyz1234567890")
-
-func randSeq(n int, dns bool) string {
-	b := make([]rune, n)
-	for i := range b {
-		if dns {
-			b[i] = dnsCompliantAlphaNumeric[rand.Intn(len(dnsCompliantAlphaNumeric))]
-		} else {
-			b[i] = alphaNumeric[rand.Intn(len(alphaNumeric))]
-		}
-	}
-	return string(b)
-}
 
 type fastlyAPI struct {
 	Token                    string
@@ -54,24 +35,6 @@ func containsDomain(domains []*fastly.Domain, domainName string) bool {
 		}
 	}
 	return false
-}
-
-// check if ingress contains a host
-func containsIngress(ingress *networkv1.Ingress, host string) bool {
-	for _, ingressRule := range ingress.Spec.Rules {
-		if ingressRule.Host == host {
-			return true
-		}
-	}
-	return false
-}
-
-// will ignore not found errors
-func ignoreNotFound(err error) error {
-	if apierrors.IsNotFound(err) {
-		return nil
-	}
-	return err
 }
 
 // check if a slice contains a string
@@ -128,21 +91,21 @@ func decodePrivateKeyToPublicKeySHA1(keyBytes []byte) (string, error) {
 	var err error
 	privPem, _ := pem.Decode(keyBytes)
 	if privPem.Type != "RSA PRIVATE KEY" {
-		return "", fmt.Errorf("Unable to parse RSA privatekey")
+		return "", fmt.Errorf("unable to parse RSA privatekey")
 	}
 	var parsedKey interface{}
 	if parsedKey, err = x509.ParsePKCS1PrivateKey(privPem.Bytes); err != nil {
 		if parsedKey, err = x509.ParsePKCS8PrivateKey(privPem.Bytes); err != nil {
-			return "", fmt.Errorf("Unable to parse RSA privatekey")
+			return "", fmt.Errorf("unable to parse RSA privatekey")
 		}
 	}
 	rsaPrivateKey, ok := parsedKey.(*rsa.PrivateKey)
 	if !ok {
-		return "", fmt.Errorf("Unable to parse RSA privatekey")
+		return "", fmt.Errorf("unable to parse RSA privatekey")
 	}
 	pubASN1, err := x509.MarshalPKIXPublicKey(&rsaPrivateKey.PublicKey)
 	if err != nil {
-		return "", fmt.Errorf("Unable to marshal publickey")
+		return "", fmt.Errorf("unable to marshal publickey")
 	}
 	return fmt.Sprintf("%x", sha1.Sum(pem.EncodeToMemory(&pem.Block{
 		Type:  "PUBLIC KEY",

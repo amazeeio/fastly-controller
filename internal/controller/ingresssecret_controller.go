@@ -1,4 +1,4 @@
-package controllers
+package controller
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// load the resource
 	var ingressSecret corev1.Secret
 	if err := r.Get(ctx, req.NamespacedName, &ingressSecret); err != nil {
-		return ctrl.Result{}, ignoreNotFound(err)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// get the serviceid and secret name from annotations
@@ -173,7 +173,7 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				// then we should add the new privatekey, update the annotations with the old values and clean up later
 				if publicKeySha1Annotation != "" && publicKeySha1Annotation != publicKeySha1 {
 					// load the privatekey into fastly
-					opLog.Info(fmt.Sprintf("Privatekey is different to the one defined, check or load into Fastly"))
+					opLog.Info("Privatekey is different to the one defined, check or load into Fastly")
 					privateKeyID, err := r.addPrivateKey(ctx, ingressSecret, publicKeySha1)
 					if err != nil {
 						opLog.Info(fmt.Sprintf("Privatekey failed to load into Fastly, pausing, error was: %v", err))
@@ -202,7 +202,7 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				// then we should add the privatekey and then update the annotations with the values
 				if privateKeyIDAnnotation == "" || publicKeySha1Annotation == "" {
 					// load the privatekey into fastly
-					opLog.Info(fmt.Sprintf("Privatekey info not found, check or load it into Fastly"))
+					opLog.Info("Privatekey info not found, check or load it into Fastly")
 					privateKeyID, err := r.addPrivateKey(ctx, ingressSecret, publicKeySha1)
 					if err != nil {
 						opLog.Info(fmt.Sprintf("Privatekey failed to load into Fastly, pausing, error was: %v", err))
@@ -229,7 +229,7 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				if bulkCertificateIDAnnotation != "" && oldPublicKeySha1Annotation != "" && oldPrivateKeyIDAnnotation != "" {
 					// if we do have a bulk certificate id, and there is an oldPublicKeySha1Annotation and oldPrivateKeyIDAnnotation set
 					// @TODO: use `updateCertificate` instead, and not bother with the `old-bulk-certificate-id` annotation
-					opLog.Info(fmt.Sprintf("Private key was updated, the certificate was probably renewed"))
+					opLog.Info("Private key was updated, the certificate was probably renewed")
 					/*
 						err := r.updateCertificate(ctx, ingressSecret, bulkCertificateIDAnnotation)
 						if err != nil {
@@ -296,13 +296,13 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 								return ctrl.Result{}, nil
 							}
 						} else {
-							opLog.Info(fmt.Sprintf("Certificate already uploaded, possibly renewed"))
+							opLog.Info("Certificate already uploaded, possibly renewed")
 						}
 					}
 				} else if bulkCertificateIDAnnotation == "" {
 					// if we don't have the bulk certificate id, and this is not an update event
 					// we assume this a new certificate and load it into fastly
-					opLog.Info(fmt.Sprintf("Adding certificate into Fastly"))
+					opLog.Info("Adding certificate into Fastly")
 					certificateID, err := r.loadCertificate(ctx, ingressSecret, fastlyConfig)
 					if err != nil {
 						errMsg := fmt.Sprintf("Certificate failed to load into Fastly, error was: %v", err)
@@ -380,17 +380,18 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 								return ctrl.Result{}, nil
 							}
 						} else {
-							opLog.Info(fmt.Sprintf("Certificate already uploaded"))
+							opLog.Info("Certificate already uploaded")
 						}
 					}
 				}
 			} else {
 				// don't do anything, reconciler will run when the certificate is ready
-				opLog.Info(fmt.Sprintf("Certificate has not been populated yet"))
+				opLog.Info("Certificate has not been populated yet")
 			}
 
 			// if we get this far and have old things to delete, we should do that here.
 			if oldPublicKeySha1Annotation != "" && oldPrivateKeyIDAnnotation != "" {
+				// TODO(marco): remove this once we're sure we don't need it anymore
 				/*
 					// @TODO: we don't actually store any `old-bulk-certificate-id` if that changes, we can delete it using this
 					if _, ok := ingressSecret.Annotations["fastly.amazee.io/old-bulk-certificate-id"]; ok {
@@ -405,6 +406,7 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 					}
 				*/
 				opLog.Info(fmt.Sprintf("Clean up old PubkeySha1:%s, PrivKeyID:%s", oldPublicKeySha1Annotation, oldPrivateKeyIDAnnotation))
+				// TODO(marco): remove this once we're sure we don't need it anymore
 				/*
 					// @TODO: can't delete old private keys without deleting the certificate too
 					if err := r.deletePrivateKey(ingressSecret, string(ingressSecret.Annotations["fastly.amazee.io/old-private-key-id"])); err != nil {
@@ -424,7 +426,7 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 					Name:      ingressName,
 					Namespace: ingressSecret.ObjectMeta.Namespace,
 				}, &ingress); err != nil {
-					return ctrl.Result{}, ignoreNotFound(err)
+					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
 				if pausedIngressVal, ok := ingress.ObjectMeta.Annotations["fastly.amazee.io/paused"]; ok {
 					result, _ := strconv.ParseBool(pausedIngressVal)
@@ -448,7 +450,7 @@ func (r *IngressSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// The object is being deleted
 		if deleteExternal || !paused {
 			if err := r.deleteExternalResources(ctx, ingressSecret); err != nil {
-				return ctrl.Result{}, fmt.Errorf("Failed to delete external resources, error was: %v", err)
+				return ctrl.Result{}, fmt.Errorf("failed to delete external resources, error was: %v", err)
 			}
 		}
 	}
@@ -574,7 +576,7 @@ func (r *IngressSecretReconciler) deleteExternalResources(
 		r.Log.WithValues("ingress", types.NamespacedName{
 			Name:      ingressSecret.ObjectMeta.Name,
 			Namespace: ingressSecret.ObjectMeta.Namespace,
-		}).Info(fmt.Sprintf("Attempting to delete bulk certificates"))
+		}).Info("Attempting to delete bulk certificates")
 		err := r.deleteBulkCertificate(ingressSecret, ingressSecret.Annotations["fastly.amazee.io/bulk-certificate-id"])
 		if err != nil {
 			// don't error on deletion, just log it and move on so we don't lock the finalizer up
@@ -592,7 +594,7 @@ func (r *IngressSecretReconciler) deleteExternalResources(
 		r.Log.WithValues("ingress", types.NamespacedName{
 			Name:      ingressSecret.ObjectMeta.Name,
 			Namespace: ingressSecret.ObjectMeta.Namespace,
-		}).Info(fmt.Sprintf("Attempting to delete privatekey"))
+		}).Info("Attempting to delete privatekey")
 		err := r.deletePrivateKey(ingressSecret, string(ingressSecret.Annotations["fastly.amazee.io/private-key-id"]))
 		if err != nil {
 			// don't error on deletion, just log it and move on so we don't lock the finalizer up
@@ -657,6 +659,9 @@ func (r *IngressSecretReconciler) addPrivateKey(ctx context.Context, ingressSecr
 // load the certificate into fastly
 func (r *IngressSecretReconciler) loadCertificate(ctx context.Context, ingressSecret corev1.Secret, fastlyConfig fastlyAPI) (string, error) {
 	mainCert, intermediateCert, err := getCertsFromChain(ingressSecret.Data["tls.crt"])
+	if err != nil {
+		return "", err
+	}
 	// create the certificate in fastly
 	certificate, err := r.FastlyClient.CreateBulkCertificate(&fastly.CreateBulkCertificateInput{
 		CertBlob:          string(mainCert),
@@ -680,6 +685,9 @@ func (r *IngressSecretReconciler) loadCertificate(ctx context.Context, ingressSe
 // load the certificate into fastly
 func (r *IngressSecretReconciler) updateCertificate(ctx context.Context, ingressSecret corev1.Secret, certID string) error {
 	mainCert, intermediateCert, err := getCertsFromChain(ingressSecret.Data["tls.crt"])
+	if err != nil {
+		return err
+	}
 	// create the certificate in fastly
 	certificates, err := r.FastlyClient.UpdateBulkCertificate(&fastly.UpdateBulkCertificateInput{
 		CertBlob:          string(mainCert),
@@ -710,7 +718,7 @@ func (r *IngressSecretReconciler) patchSecretAnnotations(
 		Name:      ingressSecret.ObjectMeta.Name,
 		Namespace: ingressSecret.ObjectMeta.Namespace,
 	}, &ingressSecret); err != nil {
-		return fmt.Errorf("Unable to find secret of %s", ingressSecret.ObjectMeta.Name)
+		return fmt.Errorf("unable to find secret of %s", ingressSecret.ObjectMeta.Name)
 	}
 	mergePatch, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
@@ -718,36 +726,15 @@ func (r *IngressSecretReconciler) patchSecretAnnotations(
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("Unable to create mergepatch for %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
+		return fmt.Errorf("unable to create mergepatch for %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
 	}
 	if err := r.Patch(ctx, &ingressSecret, client.RawPatch(types.StrategicMergePatchType, mergePatch)); err != nil {
-		return fmt.Errorf("Unable to patch secret %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
+		return fmt.Errorf("unable to patch secret %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
 	}
 	r.Log.WithValues("ingress", types.NamespacedName{
 		Name:      ingressSecret.ObjectMeta.Name,
 		Namespace: ingressSecret.ObjectMeta.Namespace,
 	}).Info(fmt.Sprintf("Patched secret %s", ingressSecret.ObjectMeta.Name))
-	return nil
-}
-
-// helper to patch the finalizer
-func (r *IngressSecretReconciler) patchFinalizer(ctx context.Context, ingressSecret corev1.Secret, finalizer []string) error {
-	mergePatch, err := json.Marshal(map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"finalizers": finalizer,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("Unable to create mergepatch for %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
-	}
-	if err := r.Patch(ctx, &ingressSecret, client.RawPatch(types.MergePatchType, mergePatch)); err != nil {
-		return fmt.Errorf("Unable to patch secret %s, error was: %v", ingressSecret.ObjectMeta.Name, err)
-	}
-	r.Log.WithValues("ingress", types.NamespacedName{
-		Name:      ingressSecret.ObjectMeta.Name,
-		Namespace: ingressSecret.ObjectMeta.Namespace,
-	}).Info(fmt.Sprintf("Patched secret of %s with annotations", ingressSecret.ObjectMeta.Name))
-
 	return nil
 }
 
@@ -762,7 +749,7 @@ func (r *IngressSecretReconciler) deleteBulkCertificate(ingressSecret corev1.Sec
 		return
 	})
 	if err != nil {
-		return fmt.Errorf("Failed to delete bulk certificate from Fastly: %v", err)
+		return fmt.Errorf("failed to delete bulk certificate from Fastly: %v", err)
 	}
 	r.Log.WithValues("ingress", types.NamespacedName{
 		Name:      ingressSecret.ObjectMeta.Name,
@@ -782,7 +769,7 @@ func (r *IngressSecretReconciler) deletePrivateKey(ingressSecret corev1.Secret, 
 		return
 	})
 	if err != nil {
-		return fmt.Errorf("Failed to delete privatekey from Fastly: %v", err)
+		return fmt.Errorf("failed to delete privatekey from Fastly: %v", err)
 	}
 	r.Log.WithValues("ingress", types.NamespacedName{
 		Name:      ingressSecret.ObjectMeta.Name,
